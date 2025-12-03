@@ -1,0 +1,413 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+#mapContainer {
+    width: 800px;
+    height: 500px;
+    margin: 20px auto;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+#markerForm {
+    display: none;
+    position: absolute;
+     z-index: 99999 !important;
+    background: #fff;
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+#filters {
+    width: 800px;
+    margin: 10px auto;
+    text-align: center;
+}
+
+#filters input[type=text] {
+    padding: 5px;
+    width: 200px;
+}
+
+#filters label {
+    margin: 0 5px;
+}
+
+/* ==========================
+   Dashboard styling (hero + grid)
+   ========================== */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: #fff;
+}
+
+/* Hero image */
+.hero {
+  position: relative;
+}
+
+.hero img {
+  width: 100%;
+  height: 550px;
+  object-fit: cover;
+  display: block;
+}
+
+.city-label {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  color: #fff;
+  font-weight: 500;
+  letter-spacing: .5px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+  font-size: 28px;
+}
+
+/* White "sheet" that overlaps hero */
+.sheet {
+  position: relative;
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  margin-top: -22px;
+  z-index: 2;
+  padding: 14px 14px 28px;
+}
+
+/* Icon grid */
+.icon-img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 132px;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.icon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-right: 1px solid #cfcfcf;
+  cursor: pointer;
+}
+
+.icon-item:nth-child(3n) {
+  border-right: none;
+}
+
+.icon-item:nth-child(-n+3) {
+  border-bottom: 1px solid #cfcfcf;
+}
+
+.icon {
+  font-size: 52px;
+  line-height: 1;
+}
+
+.label {
+  font-size: 13px;
+  color: #111;
+}
+
+/* Popular section */
+.popular {
+  padding-top: 18px;
+}
+
+.popular-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.popular-header h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111;
+}
+
+.popular-header a {
+  font-size: 14px;
+  color: #2e07b8;
+  text-decoration: none;
+}
+
+.popular-items {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.popular-card {
+  height: 150px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.popular-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Second view background (like your Main page) */
+#iconContent {
+  background: #FFD740;
+  min-height: 100vh;
+  padding: 0;
+}
+
+/* Full-content sections inside iconContent */
+.full-content {
+  background: #fff;
+  border-top-left-radius: 25px;
+  border-top-right-radius: 25px;
+  min-height: 100vh;
+  width: 100%;
+  padding: 20px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.2);
+}
+
+.icon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Back button like sample */
+.back-btn {
+  background: #FFD740;
+  color: #000;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.3s ease;
+}
+
+.back-btn:hover {
+  background: #FFC107;
+}
+
+.map-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+/* Hidden helper class */
+.hidden {
+  display: none;
+}
+
+/* Override mapContainer/filters width when inside the stall view
+   (more responsive than fixed 800px) */
+#stall #mapContainer {
+  width: 95%;
+  max-width: 900px;
+  height: 650px;
+  margin: 20px auto;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+#stall #filters {
+  width: 95%;
+  margin: 10px auto;
+  text-align: center;
+}
+
+/* Stall space markers (Available / Reserved / Occupied) */
+.stall-label {
+    position: relative;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #eee;
+    border: 1px solid #bbb;
+    color: #000;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        display: block;
+    width: 80px;        /* must match iconSize[0] in JS */
+    height: 24px;       /* text box height */
+    line-height: 24px;
+    text-align: center;
+    padding: 0;  
+}
+
+/* little pointer under the label */
+.stall-label::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid #ccc;
+}
+
+.stall-available {
+    background: #e8ffe8;
+    border-color: #66bb66;
+}
+
+.stall-reserved {
+    background: #fff3cd;
+    border-color: #ffca28;
+}
+
+.stall-occupied {
+    background: #ffd6d6;
+    border-color: #e53935;
+}
+
+
+
+/* ============================
+   Stall Application List Panel
+   ============================ */
+
+#applicationListPanel {
+  width: 95%;
+  max-width: 900px;
+  margin: 10px auto 20px;
+  background: #f5f5f5;
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  font-size: 13px;
+}
+
+#applicationListPanel h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #333;
+}
+
+.application-table-wrapper {
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+  max-height: 260px;      /* scroll like your mockup */
+  overflow-y: auto;
+}
+
+/* Table styling */
+#applicationTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#applicationTable thead {
+  background: #f0f0f0;
+}
+
+#applicationTable th,
+#applicationTable td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+#applicationTable th {
+  font-weight: 600;
+  color: #555;
+}
+
+#applicationTable tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+/* Status pills */
+.app-status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.app-status-pending {
+  background: #fff3cd;
+  color: #8a6d3b;
+}
+
+.app-status-approved {
+  background: #e8ffe8;
+  color: #2e7d32;
+}
+
+.app-status-rejected {
+  background: #ffe0e0;
+  color: #c62828;
+}
+
+.app-status-cancelled {
+  background: #e0e0e0;
+  color: #555;
+}
+
+/* Action buttons */
+.app-action-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+.app-approve {
+  background: #4caf50;
+  color: #fff;
+}
+
+.app-reject {
+  background: #e53935;
+  color: #fff;
+}
+
+.app-cancel {
+  background: #9e9e9e;
+  color: #fff;
+}
+
+.app-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
