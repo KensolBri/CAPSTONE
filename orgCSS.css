@@ -4,6 +4,87 @@ html, body {
     padding: 0;
 }
 
+/* Top nav (LGU + Vendor) — search + notification only */
+.top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #FFD633;
+  }
+
+.lgu-vendor-top-nav {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    justify-content: center;
+  }
+
+.lgu-vendor-top-nav .search-wrap {
+    margin: 0 auto;
+}
+
+.lgu-vendor-top-nav .notif-btn {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border-radius: 22px;
+    padding: 6px 10px;
+    width: min(78vw, 320px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+}
+
+.search-wrap input {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0;
+    flex: 1;
+    font-size: 14px;
+    background: transparent;
+}
+
+.search-icon {
+    border: none !important;
+    outline: none !important;
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0;
+}
+
+.notif-btn {
+    background: transparent;
+    border: none !important;
+    outline: none !important;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.notif-img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+.nav-img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+}
+
 #mapContainer {
     width: 800px;
     height: 500px;
@@ -20,7 +101,7 @@ html, body {
 #markerForm {
     display: none;
     position: absolute;
-     z-index: 99999 !important;
+    z-index: 99999 !important;
     background: #fff;
     padding: 15px;
     border: 1px solid #ccc;
@@ -98,9 +179,60 @@ body {
 .icon-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: 132px;
+  grid-auto-rows: minmax(110px, auto);
+  gap: 1px;
   text-align: center;
   margin-top: 8px;
+  background: #e0e0e0;
+  padding: 1px 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* LGU: 3×2 grid — internal dividers only. vendorCSS adds .icon-grid::before/::after (2×2 cross); disable for LGU */
+.icon-grid.lgu-icon-grid::before,
+.icon-grid.lgu-icon-grid::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* LGU: 3×2 grid — internal dividers only; no top/bottom outer lines, no vendor cross */
+.icon-grid.lgu-icon-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, minmax(115px, auto));
+  gap: 0;
+  background: #fff;
+  padding: 0;
+  margin-top: 8px;
+  text-align: center;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.icon-grid.lgu-icon-grid .icon-item {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+  margin: 0;
+}
+
+/* horizontal rule between row 1 and 2 only */
+.icon-grid.lgu-icon-grid .icon-item:nth-child(1),
+.icon-grid.lgu-icon-grid .icon-item:nth-child(2),
+.icon-grid.lgu-icon-grid .icon-item:nth-child(3) {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+/* vertical rules between columns only (not outer left/right edge) */
+.icon-grid.lgu-icon-grid .icon-item:nth-child(1),
+.icon-grid.lgu-icon-grid .icon-item:nth-child(2),
+.icon-grid.lgu-icon-grid .icon-item:nth-child(4),
+.icon-grid.lgu-icon-grid .icon-item:nth-child(5) {
+  border-right: 1px solid #e0e0e0;
 }
 
 .icon-item {
@@ -109,16 +241,18 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-right: 1px solid #cfcfcf;
+  background: #fff;
   cursor: pointer;
+  padding: 12px 8px;
+  transition: background 0.2s;
 }
 
-.icon-item:nth-child(3n) {
-  border-right: none;
+.icon-item:hover {
+  background: #f8f8f8;
 }
 
-.icon-item:nth-child(-n+3) {
-  border-bottom: 1px solid #cfcfcf;
+.icon-item:active {
+  background: #eee;
 }
 
 .icon {
@@ -255,7 +389,7 @@ body {
     border: 1px solid #bbb;
     color: #000;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        display: block;
+    display: block;
     width: 80px;        /* must match iconSize[0] in JS */
     height: 24px;       /* text box height */
     line-height: 24px;
@@ -291,7 +425,6 @@ body {
     background: #ffd6d6;
     border-color: #e53935;
 }
-
 
 
 /* ============================
@@ -411,3 +544,516 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+.app-delete {
+  background: #b0bec5;
+  color: #fff;
+}
+
+/* ============================
+   Festival / Events Stall Summary Panel
+   ============================ */
+
+#festivalSummaryPanel {
+  width: 95%;
+  max-width: 900px;
+  margin: 10px auto 20px;
+  background: #f5f5f5;
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  font-size: 13px;
+}
+
+#festivalSummaryPanel h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #333;
+}
+
+#festivalSummaryPanel .application-table-wrapper {
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+#festivalTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#festivalTable thead {
+  background: #f0f0f0;
+}
+
+#festivalTable th,
+#festivalTable td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+#festivalTable th {
+  font-weight: 600;
+  color: #555;
+}
+
+#festivalTable tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+.festival-view-stalls {
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  background: #2196f3;
+  color: #fff;
+}
+
+/* ========== LGU Festival Stalls Modal ========== */
+.lgu-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 4000;
+  align-items: center;
+  justify-content: center;
+}
+
+.lgu-modal.open {
+  display: flex;
+}
+
+.lgu-modal-content {
+  background: #fff;
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  border-radius: 18px;
+  padding: 14px 18px 16px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.lgu-modal-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.lgu-modal-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+  float: right;
+}
+
+.lgu-stall-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.lgu-stall-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #eee;
+}
+
+.lgu-stall-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lgu-stall-main {
+  flex: 1;
+}
+
+.lgu-stall-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.lgu-stall-names {
+  display: flex;
+  flex-direction: column;
+}
+
+.lgu-stall-vendor {
+  font-weight: 600;
+}
+
+.lgu-stall-stallname {
+  font-size: 12px;
+  color: #555;
+}
+
+.lgu-stall-status-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.lgu-stall-status-pill.occupied {
+  background: #ffe0e0;
+  color: #c62828;
+}
+
+.lgu-stall-status-pill.reserved {
+  background: #fff3cd;
+  color: #8a6d3b;
+}
+
+.lgu-stall-type {
+  font-size: 12px;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.lgu-stall-products-toggle {
+  border: none;
+  background: #2196f3;
+  color: #fff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lgu-stall-products {
+  margin-top: 4px;
+  display: none;
+}
+
+.lgu-stall-products.open {
+  display: block;
+}
+
+.lgu-stall-products ul {
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.lgu-stall-products li {
+  font-size: 12px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lgu-product-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #eee;
+}
+
+.lgu-product-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ========== LGU Event Details ========== */
+.event-details-content {
+  padding: 16px 20px;
+}
+
+.lgu-add-event-btn {
+  padding: 10px 20px;
+  background: #FFD740;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+.lgu-add-event-btn:hover {
+  background: #ffc107;
+}
+
+.lgu-events-empty {
+  color: #666;
+  font-size: 14px;
+}
+
+.lgu-events-table-wrap {
+  overflow-x: auto;
+}
+
+.lgu-events-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lgu-events-table th,
+.lgu-events-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid #ddd;
+}
+
+.lgu-events-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.lgu-modal-content.lgu-modal-wide {
+  max-width: 480px;
+}
+
+.lgu-modal-content.lgu-modal-wide form label {
+  display: block;
+  margin-top: 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.lgu-modal-content.lgu-modal-wide form input[type="text"],
+.lgu-modal-content.lgu-modal-wide form input[type="date"],
+.lgu-modal-content.lgu-modal-wide form input[type="file"],
+.lgu-modal-content.lgu-modal-wide form select {
+  width: 100%;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.lgu-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.lgu-modal-actions .btn-primary,
+.lgu-modal-actions .btn-secondary {
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lgu-modal-actions .btn-primary {
+  background: #1e88e5;
+  color: #fff;
+  border: none;
+}
+
+.lgu-modal-actions .btn-secondary {
+  background: #f5f5f5;
+  border: 1px solid #ccc;
+  color: #333;
+}
+
+.lgu-menu-avatar-static {
+  cursor: default;
+  pointer-events: none;
+}
+
+.lgu-menu-avatar-static img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.event-analytics-content {
+  padding: 16px 20px;
+}
+
+.lgu-analytics-chart-wrap {
+  margin-bottom: 20px;
+  height: 260px;
+  position: relative;
+}
+
+.lgu-analytics-table-wrap {
+  overflow-x: auto;
+}
+
+.lgu-analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lgu-analytics-table th,
+.lgu-analytics-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid #ddd;
+}
+
+.lgu-analytics-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+/* LGU Avatar Modal */
+.lgu-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  padding: 20px;
+}
+
+.lgu-modal-sheet {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.lgu-settings-modal-sheet {
+  max-width: 420px;
+}
+
+.lgu-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.lgu-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.lgu-modal-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 4px;
+}
+
+.lgu-avatar-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lgu-avatar-preset {
+  border: 1px solid #ddd;
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 10px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.lgu-avatar-preset.selected {
+  border-color: #1e88e5;
+  box-shadow: 0 0 0 2px rgba(30,136,229,0.15);
+}
+
+.lgu-avatar-preset img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #eee;
+}
+
+.lgu-avatar-preset span {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.lgu-avatar-upload-row {
+  display: flex;
+  gap: 10px;
+}
+
+.lgu-avatar-upload-btn,
+.lgu-avatar-save-btn {
+  flex: 1;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.lgu-avatar-upload-btn {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.lgu-avatar-save-btn {
+  background: #1e88e5;
+  color: #fff;
+}
+
+/* Welcome popup (LGU) */
+.welcome-popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.welcome-popup-content {
+  background: #fff;
+  padding: 32px 48px;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+
+.welcome-popup-content h2 {
+  margin: 0 0 20px;
+  font-size: 22px;
+  color: #111;
+}
+
+.welcome-popup-hint {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+}
+

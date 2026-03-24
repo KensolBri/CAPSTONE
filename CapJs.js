@@ -16,11 +16,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 // Continue as Guest
-// Continue as Guest
-document.getElementById("guestBttn").addEventListener("click", () => {
-  // go to a small PHP bridge that sets the guest session and redirects to Main.php
-  window.location.href = "guest.php";
-});
+  document.getElementById("guestBttn").addEventListener("click", () => {
+    window.location.href = "guest.php";
+  });
 
 
 
@@ -188,7 +186,13 @@ loginForm.addEventListener("submit", function(e) {
         method: "POST",
         body: formData
     })
-    .then(response => response.json())
+    .then(async response => {
+        if (!response.ok) {
+            const t = await response.text();
+            throw new Error(t || ("HTTP " + response.status));
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.status === "success") {
             alert(data.message);
@@ -209,12 +213,14 @@ loginForm.addEventListener("submit", function(e) {
                 default:
                     window.location.href = "Main.php";
             }
-
         } else {
             alert(data.message);
         }
     })
-    .catch(error => console.error(error));
+    .catch(error => {
+        console.error(error);
+        alert("Login failed. Please try again.");
+    });
 });
 
 

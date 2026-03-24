@@ -39,7 +39,6 @@
   </div>
 </div>
 
-<form id="registerForm">
 <!-- Create Account Popup -->
 <div id="createPopup" class="popup">
   <div class="popup-content">
@@ -69,8 +68,6 @@
   </div>
 </div>
 
-</form>
-
 <!-- LOGIN CHOICE POPUP -->
 <div id="loginChoicePopup" class="popup">
   <div class="popup-content">
@@ -89,20 +86,15 @@
   <div class="popup-content">
     <span class="close" id="closeLogin">&times;</span>
     <h2>Login</h2>
-<form id="loginForm">
-  <input type="email" name="email" placeholder="E-mail" required>
-
-  <div class="password-container">
-    <input type="password" id="loginPassword" name="password" placeholder="Password" required>
-    <i class="fa-solid fa-eye toggle-password" data-target="loginPassword"></i>
-  </div>
-
-  <input type="hidden" name="loginType" id="loginTypeInput">
-
-  <button type="submit" class="popup-btn">LOGIN</button>
-</form>
-
-
+    <form id="loginForm">
+      <input type="email" name="email" placeholder="E-mail" required>
+      <div class="password-container">
+        <input type="password" id="loginPassword" name="password" placeholder="Password" required>
+        <i class="fa-solid fa-eye toggle-password" data-target="loginPassword"></i>
+      </div>
+      <input type="hidden" name="loginType" id="loginTypeInput">
+      <button type="submit" class="popup-btn">LOGIN</button>
+    </form>
   </div>
 </div>
 

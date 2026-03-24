@@ -1,0 +1,305 @@
+/**
+ * Shared event list cards + event detail modal styles.
+ * Kept in sync with vendorCSS.css (Vendor Events + modal).
+ * Used by Main.php (Tourist Festivities) so cards/modals match vendor.php.
+ */
+
+/* Event detail modal — same as vendor */
+.event-detail-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.event-detail-modal-content {
+  background: #fff;
+  border-radius: 16px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+  position: relative;
+}
+.event-detail-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  cursor: pointer;
+}
+.event-plan-zoom-img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  cursor: zoom-in;
+  transition: transform 0.2s;
+}
+.event-plan-zoom-img.zoomed {
+  cursor: zoom-out;
+  transform: scale(1.5);
+  transform-origin: center;
+}
+.event-detail-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.event-detail-top-left { display: flex; align-items: center; gap: 10px; }
+.event-fav-btn { background: none; border: none; font-size: 20px; color: #999; cursor: pointer; }
+.event-fav-btn.active { color: red; }
+.event-detail-rate-stars .event-rating-star { cursor: pointer; font-size: 18px; color: #ccc; }
+.event-detail-rate-stars .event-rating-star.filled { color: gold; }
+.event-detail-top-right { font-size: 13px; color: #666; }
+.event-detail-bottom-row { display: flex; gap: 10px; margin-top: 16px; }
+.event-detail-btn { padding: 8px 16px; border: 1px solid #1e88e5; border-radius: 6px; background: #fff; color: #1e88e5; cursor: pointer; font-weight: 600; }
+.event-reviews-section h4 { margin: 12px 0 8px; font-size: 14px; }
+.event-leave-review-section h4 { margin: 12px 0 8px; font-size: 14px; }
+.event-review-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; align-items: flex-start; }
+.event-reviewer-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.event-reviewer-avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.event-review-content { flex: 1; min-width: 0; }
+.event-review-date { color: #999; font-size: 11px; margin-left: 6px; }
+#eventDetailReviewText { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 8px; }
+#vendorEventDetailReviewText { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 8px; }
+
+#eventDetailBody h3 { margin: 0 0 10px; font-size: 20px; }
+#eventDetailBody p { margin: 6px 0; font-size: 14px; color: #555; }
+#eventDetailPlanWrap { margin-top: 16px; }
+
+/* Festivities list — vendor #vendor-events block */
+#vendor-events .festivities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 95%;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+
+.festivities-list { display: flex; flex-direction: column; gap: 16px; max-width: 600px; margin: 0 auto; }
+.festivities-loading, .festivities-empty { text-align: center; padding: 24px; color: #666; }
+
+.event-card {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  width: 100%;
+  height: 200px;
+  cursor: pointer;
+  background: #f5f5f5;
+}
+
+.event-card img.event-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+.event-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255,221,0,0.9) 0%, rgba(255,221,0,0.5) 40%, rgba(255,221,0,0) 100%);
+  z-index: 2;
+}
+
+.event-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 12px;
+  color: #000;
+  z-index: 3;
+  display: block;
+  text-align: left;
+}
+
+.event-info h3 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.3;
+  word-wrap: break-word;
+  max-width: 100%;
+}
+
+.event-info p {
+  margin: 2px 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+.event-card-top-left { position: absolute; top: 12px; left: 12px; z-index: 4; display: flex; align-items: center; gap: 8px; }
+.event-card-top-right { position: absolute; top: 12px; right: 12px; z-index: 4; font-size: 12px; color: #000; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 6px; }
+.event-card-bottom-right { position: absolute; bottom: 12px; right: 12px; z-index: 4; display: flex; gap: 8px; }
+.event-card-fav-btn, .event-card-review-btn { background: none; border: none; cursor: pointer; }
+.event-card-fav-btn { font-size: 18px; color: #999; }
+.event-card-fav-btn.active { color: red; }
+.event-card-star { cursor: pointer; font-size: 16px; color: #ccc; }
+.event-card-star.filled { color: gold; }
+.event-card-review-btn { padding: 6px 12px; font-size: 11px; border: 1px solid rgba(255,255,255,0.9); border-radius: 6px; background: rgba(0,0,0,0.5); color: #fff; }
+
+@media (max-width: 480px) {
+  .event-card {
+    height: auto;
+    min-height: 150px;
+  }
+  .event-info {
+    padding: 8px;
+  }
+}
+
+/* Tourist Festivities: same cards as vendor + review buttons always on top of card */
+#festivities .festivities-list {
+  width: 95%;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+
+/* Outer card: holds inner (clipped art) + bottom-right actions (never clipped) */
+#festivities .event-card {
+  position: relative;
+  cursor: pointer;
+  background: #f5f5f5;
+  overflow: visible;
+  height: 200px;
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Flat vendor markup uses ::before on .event-card; tourist uses .event-card-inner — turn off duplicate gradient */
+#festivities .event-card::before {
+  content: none !important;
+  display: none !important;
+}
+
+#festivities .event-card-inner {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  z-index: 1;
+}
+
+#festivities .event-card-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(255, 221, 0, 0.9) 0%, rgba(255, 221, 0, 0.5) 40%, rgba(255, 221, 0, 0) 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+#festivities .event-card-inner .event-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+#festivities .event-card-inner .event-card-top-left {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#festivities .event-card-inner .event-card-top-right {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  font-size: 12px;
+  color: #000;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+#festivities .event-card-inner .event-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  max-width: calc(100% - 200px);
+  width: auto;
+  padding: 12px;
+  color: #000;
+  z-index: 3;
+  text-align: left;
+}
+
+#festivities .event-card-bottom-right {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
+}
+
+#festivities .event-card-fav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: #999;
+}
+
+#festivities .event-card-review-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55) !important;
+  color: #fff !important;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#festivities .event-card-fav-btn.active {
+  color: red;
+}
+
+#festivities .event-card-star {
+  cursor: pointer;
+  font-size: 16px;
+  color: #ccc;
+}
+
+#festivities .event-card-star.filled {
+  color: gold;
+}
+
+@media (max-width: 480px) {
+  #festivities .event-card-inner .event-info {
+    padding: 8px;
+  }
+}

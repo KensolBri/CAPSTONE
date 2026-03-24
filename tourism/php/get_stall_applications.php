@@ -19,19 +19,20 @@ if (($_SESSION['account_type'] ?? '') !== 'lgu') {
 
 $sql = "
     SELECT 
-        a.id,
-        a.stall_id,
-        a.vendor_id,
-        a.stall_name,
-        a.product_type,
-        a.stall_size,
-        a.preferred_area,
-        a.status,
-        DATE_FORMAT(a.applied_at, '%b %e, %Y %H:%i:%s') AS applied_at,
-        u.username AS vendor_name
-    FROM stall_applications a
-    LEFT JOIN users u ON a.vendor_id = u.id
-    ORDER BY a.applied_at DESC
+        sa.id,
+        sa.stall_id,
+        sa.vendor_id,
+        u.full_name AS vendor_name,
+        sa.stall_name,
+        sa.product_type,
+        sa.stall_size,
+        sa.stall_image,
+        sa.status,
+        sa.applied_at
+    FROM stall_applications AS sa
+    JOIN lokal_users.users AS u
+      ON sa.vendor_id = u.id
+    ORDER BY sa.applied_at DESC
 ";
 
 $result = $conn->query($sql);
