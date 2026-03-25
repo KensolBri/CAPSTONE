@@ -26,8 +26,8 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="orgCSS.css?v=2" />
-  <link rel="stylesheet" href="vendorCSS.css?v=3" />
+    <link rel="stylesheet" href="orgCSS.css?v=3" />
+    <link rel="stylesheet" href="vendorCSS.css?v=4" />
 </head>
 <body>
 
@@ -48,7 +48,7 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
     <!-- Hero header -->
     <section class="hero">
       <!-- put your LGU / festival image here -->
-      <img src="IloChurch.jpg" alt="Iloilo City, Philippines" />
+      <img src="Iloilo.gif" alt="Iloilo City, Philippines" />
       <div class="city-label">ILOILO CITY, PHILIPPINES</div>
     </section>
 
@@ -325,6 +325,17 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
         </div>
         <div class="vendor-menu-sections">
           <div class="vendor-menu-group">
+            <div class="vendor-menu-group-title">MANAGE</div>
+            <button type="button" class="vendor-menu-item" data-action="lgu-landmarks-map">
+              <span class="vendor-menu-item-left">
+                <span class="vendor-menu-icon">🗺</span>
+                <span>Landmarks Map</span>
+              </span>
+              <span class="vendor-menu-chevron">›</span>
+            </button>
+          </div>
+
+          <div class="vendor-menu-group">
             <div class="vendor-menu-group-title">APP SETTINGS</div>
             <button type="button" class="vendor-menu-item" data-action="lgu-general">
               <span class="vendor-menu-item-left">
@@ -349,6 +360,23 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
             </a>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section id="lgu-landmarks-map" class="full-content hidden vendor-landmarks-screen">
+      <div class="icon-header">
+        <h2>
+          <img src="map.png" alt="Map Icon" class="map-icon"/> Landmarks Map
+        </h2>
+        <button class="back-btn" data-back-to="lgu-menu">⬅ Back</button>
+      </div>
+
+      <div class="lgu-landmarks-iframe-wrap">
+        <iframe
+          class="lgu-landmarks-iframe"
+          src="tourism/landmarks_map.php"
+          title="LGU Landmarks Map"
+          frameborder="0"></iframe>
       </div>
     </section>
   </div>

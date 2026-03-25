@@ -346,6 +346,10 @@ function applyFilters(){
 
     $.getJSON(phpFolder + '/get_markers.php', function(data){
         data.forEach(function(marker){
+            // Keep LGU "Landmarks Map" markers hidden from the main LGU map tab
+            // (where the old marker form doesn't support Landmark Address/gallery).
+            if (marker.category === 'Landmark') return;
+
             var iconUrl = marker.image
                 ? 'tourism/uploads/' + marker.image
                 : (marker.icon_type == 'square' ? 'square_icon.png' : 'circle_icon.png');
@@ -656,6 +660,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (action === "lgu-help") {
             alert("Help and Support: coming soon.");
+        }
+        if (action === "lgu-landmarks-map") {
+            // Navigate inside the LGU iconContent screens
+            showSection("lgu-landmarks-map");
         }
     });
 

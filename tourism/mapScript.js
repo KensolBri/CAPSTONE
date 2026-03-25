@@ -304,6 +304,9 @@ function applyFilters(){
 
     $.getJSON('php/get_markers.php', function(data){
         data.forEach(function(marker){
+            // LGU "Landmarks Map" markers should not show on the tourist map tab
+            if (marker.category === 'Landmark') return;
+
             var iconUrl = marker.image ? 'uploads/'+marker.image : (marker.icon_type=='square'?'square_icon.png':'circle_icon.png');
             var icon = L.icon({iconUrl:iconUrl, iconSize:[30,30]});
             var popup = "<b>"+marker.name+"</b><br>"+marker.description+"<br>Category: "+marker.category;

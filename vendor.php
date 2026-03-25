@@ -26,7 +26,7 @@ $accountType    = $_SESSION['account_type'] ?? 'vendor';
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
     <!-- Custom Vendor CSS -->
-    <link rel="stylesheet" href="vendorCSS.css?v=3" />
+    <link rel="stylesheet" href="vendorCSS.css?v=4" />
 </head>
 <body>
 
@@ -47,7 +47,7 @@ $accountType    = $_SESSION['account_type'] ?? 'vendor';
     <!-- Hero header -->
     <section class="hero">
       <!-- put your vendor / city image here -->
-      <img src="IloChurch.jpg" alt="Iloilo City, Philippines" />
+      <img src="Iloilo.gif" alt="Iloilo City, Philippines" />
       <div class="city-label">ILOILO CITY, PHILIPPINES</div>
     </section>
 

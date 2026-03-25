@@ -71,6 +71,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (key === "food") {
         initStallsNearYou();
       }
+      if (key === "destination") {
+        loadLandmarks();
+      }
+      if (key === "location") {
+        initTouristLocationTab();
+      }
     });
   });
 
@@ -95,6 +101,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const stallDetailSheet = document.getElementById("stallDetailSheet");
       if (stallDetailSheet) {
         closeStallDetailSheet();
+      }
+
+      // Close landmark modal if it was open
+      const landmarkDetailModal = document.getElementById("landmarkDetailModal");
+      if (landmarkDetailModal) {
+        landmarkDetailModal.style.display = "none";
+        landmarkDetailModal.setAttribute("aria-hidden", "true");
       }
     });
   });
@@ -466,7 +479,608 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  // Landmark detail modal
+  const landmarkDetailModal = document.getElementById("landmarkDetailModal");
+  const landmarkDetailClose = document.getElementById("landmarkDetailModalClose");
+  if (landmarkDetailClose) {
+    landmarkDetailClose.addEventListener("click", () => {
+      if (landmarkDetailModal) {
+        landmarkDetailModal.style.display = "none";
+        landmarkDetailModal.setAttribute("aria-hidden", "true");
+      }
+    });
+  }
+  if (landmarkDetailModal) {
+    landmarkDetailModal.addEventListener("click", (e) => {
+      if (e.target === landmarkDetailModal) {
+        landmarkDetailModal.style.display = "none";
+        landmarkDetailModal.setAttribute("aria-hidden", "true");
+      }
+    });
+  }
 });
+
+// ================================
+// Tourist LOCATION (Landmarks map + distance cards)
+// ================================
+let touristLocationInitialized = false;
+let touristLocationMap = null;
+let touristLocationMarkerCluster = null;
+let touristLocationLandmarksById = new Map();
+let touristLocationMarkerById = new Map();
+let touristUserMarker = null;
+let touristUserAccuracyCircle = null;
+let touristUserCoords = null;
+let touristSelectedLandmarkId = null;
+let touristRouteLine = null;
+let touristRouteControl = null;
+let touristRoutedLandmarkId = null;
+let touristRouteWatchId = null;
+let touristRouteDestLatLng = null;
+let touristRouteMode = "car"; // car | foot (auto-switch)
+let touristLastRouteUpdateAt = 0;
+let touristLastPosSample = null; // {lat,lng,ts}
+let touristLastMileLine = null;
+
+function escapeHtml(str) {
+  return (str ?? "").toString().replace(/[&<>"']/g, (c) => {
+    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+    return map[c] || c;
+  });
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const TOURIST_DEFAULT_PIN_ICON = 'tourism/uploads/userPin.png';
+
+function getTouristAvatarPinIcon() {
+  const fullName = (window.touristUserFullName || "").toString();
+  const avatarUrl = (window.touristUserAvatarUrl || "").toString();
+  const isGuest = !fullName || fullName.trim() === "";
+  const useDefaultPin = isGuest || !avatarUrl || avatarUrl.trim() === "";
+
+  // If avatar url is stored as project-relative path (e.g., tourism/uploads/..), keep it as-is from Main.php.
+  const imgSrc = useDefaultPin ? TOURIST_DEFAULT_PIN_ICON : avatarUrl.replace(/"/g, "&quot;");
+  const avatarHtml = `<img src="${imgSrc}" alt="You"/>`;
+
+  const html = `
+    <div class="user-avatar-pin">
+      <svg viewBox="0 0 44 56" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 0 C34 0 44 12 44 22 C44 34 22 56 22 56 C22 56 0 34 0 22 C0 12 10 0 22 0 Z"
+          fill="#E53935" stroke="#C62828" stroke-width="1"/>
+      </svg>
+      <div class="pin-avatar">${avatarHtml}</div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'leaflet-div-icon user-pin-icon',
+    iconSize: [44, 56],
+    iconAnchor: [22, 56]
+  });
+}
+
+function buildTouristLandmarkIcon(lm) {
+  const label = lm && lm.name ? lm.name : "Landmark";
+  const thumb = (lm && lm.image) ? ('tourism/uploads/' + lm.image) : 'circle_icon.png';
+
+  const html =
+    '<div class="landmark-pin-wrapper">' +
+      '<div class="landmark-pin-label">' + escapeHtml(label) + '</div>' +
+      '<div class="landmark-pin">' +
+        '<img src="' + thumb + '" alt="' + escapeHtml(label) + '">' +
+      '</div>' +
+    '</div>';
+
+  return L.divIcon({
+    className: "landmark-pin-icon",
+    html,
+    iconSize: [150, 76],
+    iconAnchor: [75, 76]
+  });
+}
+
+function closeTouristRouteSheet() {
+  const backdrop = document.getElementById('touristRouteSheetBackdrop');
+  const sheet = document.getElementById('touristRouteSheet');
+  if (backdrop) {
+    backdrop.style.display = "none";
+    backdrop.setAttribute("aria-hidden", "true");
+  }
+  if (sheet) {
+    sheet.style.display = "none";
+    sheet.setAttribute("aria-hidden", "true");
+  }
+  touristSelectedLandmarkId = null;
+}
+
+function openTouristRouteSheet(lm) {
+  const backdrop = document.getElementById('touristRouteSheetBackdrop');
+  const sheet = document.getElementById('touristRouteSheet');
+  const title = document.getElementById('touristRouteTitle');
+  const goBtn = document.getElementById('touristRouteGoBtn');
+  const cancelBtn = document.getElementById('touristRouteCancelBtn');
+  if (!sheet || !backdrop) return;
+
+  touristSelectedLandmarkId = Number(lm && lm.id ? lm.id : 0) || null;
+  if (title) title.textContent = (lm && lm.name) ? lm.name : "Landmark";
+
+  // Toggle buttons depending on whether this landmark is currently routed.
+  const selectedId = touristSelectedLandmarkId;
+  const isRouted = !!(selectedId && touristRoutedLandmarkId === selectedId);
+  if (goBtn) goBtn.style.display = isRouted ? "none" : "inline-flex";
+  if (cancelBtn) cancelBtn.textContent = isRouted ? "Cancel route" : "Cancel";
+
+  backdrop.style.display = "block";
+  backdrop.setAttribute("aria-hidden", "false");
+  sheet.style.display = "block";
+  sheet.setAttribute("aria-hidden", "false");
+}
+
+function drawRouteToLandmark(lm) {
+  if (!touristLocationMap || !lm) return;
+  if (!touristUserCoords) {
+    const hint = document.getElementById('touristLocationHint');
+    if (hint) hint.textContent = "Turn on location to draw a route.";
+    return;
+  }
+
+  const lat = Number(lm.lat);
+  const lng = Number(lm.lng);
+  if (!isFinite(lat) || !isFinite(lng)) return;
+
+  const from = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
+  const to = L.latLng(lat, lng);
+
+  // Prefer road routing (Leaflet Routing Machine). Fallback to straight line if missing.
+  if (typeof L !== "undefined" && L.Routing && typeof L.Routing.control === "function") {
+    // If landmark is near, prefer walking to allow smaller streets/paths.
+    const km = haversineKm(from.lat, from.lng, to.lat, to.lng);
+    const initialMode = (isFinite(km) && km <= 1.8) ? "foot" : touristRouteMode;
+    createOrUpdateTouristRouteControl(from, to, initialMode, true);
+  } else {
+    // Fallback: straight line
+    if (touristRouteLine) {
+      try { touristLocationMap.removeLayer(touristRouteLine); } catch (e) {}
+      touristRouteLine = null;
+    }
+    touristRouteLine = L.polyline([from, to], {
+      color: "#ff2d7a",
+      weight: 5,
+      opacity: 0.95
+    }).addTo(touristLocationMap);
+    touristLocationMap.fitBounds(L.latLngBounds([from, to]), { padding: [30, 30] });
+  }
+
+  touristRoutedLandmarkId = Number(lm.id || 0) || null;
+  touristRouteDestLatLng = to;
+  startTouristRouteRealtimeTracking();
+}
+
+function createOrUpdateTouristRouteControl(from, to, mode, fit) {
+  if (!touristLocationMap) return;
+
+  // Remove existing control if we need to change router profile
+  const wantMode = mode === "foot" ? "foot" : "car";
+  const needRecreate = !touristRouteControl || touristRouteMode !== wantMode;
+
+  if (needRecreate) {
+    if (touristRouteControl) {
+      try { touristLocationMap.removeControl(touristRouteControl); } catch (e) {}
+    }
+
+    touristRouteMode = wantMode;
+
+    const router = (L.Routing && L.Routing.osrmv1)
+      ? L.Routing.osrmv1({
+          serviceUrl: 'https://router.project-osrm.org/route/v1',
+          profile: wantMode
+        })
+      : undefined;
+
+    touristRouteControl = L.Routing.control({
+      waypoints: [from, to],
+      router,
+      // Do not create the default blue waypoint markers
+      createMarker: function () { return null; },
+      lineOptions: {
+        styles: [{ color: "#ff2d7a", weight: 5, opacity: 0.95 }]
+      },
+      addWaypoints: false,
+      draggableWaypoints: false,
+      routeWhileDragging: false,
+      fitSelectedRoutes: !!fit,
+      show: false
+    }).addTo(touristLocationMap);
+
+    // When routing returns, if it can't reach the exact destination,
+    // draw a short dashed "last meters" connector (walkway-like).
+    try {
+      touristRouteControl.off('routesfound');
+      touristRouteControl.on('routesfound', function (e) {
+        if (!touristLocationMap || !touristRouteDestLatLng) return;
+
+        if (touristLastMileLine) {
+          try { touristLocationMap.removeLayer(touristLastMileLine); } catch (err) {}
+          touristLastMileLine = null;
+        }
+
+        const routes = e && e.routes ? e.routes : [];
+        const r0 = routes[0];
+        const coords = r0 && r0.coordinates ? r0.coordinates : [];
+        if (!coords.length) return;
+
+        const last = coords[coords.length - 1];
+        const end = L.latLng(last.lat, last.lng);
+        const toLL = touristRouteDestLatLng;
+        const kmToPin = haversineKm(end.lat, end.lng, toLL.lat, toLL.lng);
+
+        // If route ends > ~50m away from the pin, connect it visually.
+        if (isFinite(kmToPin) && kmToPin > 0.05) {
+          touristLastMileLine = L.polyline([end, toLL], {
+            color: "#ff2d7a",
+            weight: 4,
+            opacity: 0.85,
+            dashArray: "8 10"
+          }).addTo(touristLocationMap);
+        }
+
+        // If we're in car mode and can't get close, auto-switch to foot once.
+        if (touristRouteMode === "car" && isFinite(kmToPin) && kmToPin > 0.12) {
+          createOrUpdateTouristRouteControl(from, toLL, "foot", false);
+        }
+      });
+    } catch (e) {}
+  } else {
+    // Update waypoints without recreating
+    try {
+      touristRouteControl.setWaypoints([from, to]);
+    } catch (e) {}
+  }
+}
+
+function estimateMoveSpeedMps(pos) {
+  const now = Date.now();
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const gpsSpeed = pos.coords.speed;
+  if (typeof gpsSpeed === "number" && isFinite(gpsSpeed) && gpsSpeed >= 0) return gpsSpeed;
+
+  if (!touristLastPosSample) {
+    touristLastPosSample = { lat, lng, ts: now };
+    return 0;
+  }
+
+  const prev = touristLastPosSample;
+  const dt = (now - prev.ts) / 1000;
+  touristLastPosSample = { lat, lng, ts: now };
+  if (!dt || dt <= 0) return 0;
+
+  const km = haversineKm(prev.lat, prev.lng, lat, lng);
+  const m = km * 1000;
+  return m / dt;
+}
+
+function chooseRouteModeFromSpeed(speedMps) {
+  // Simple heuristic: under ~2 m/s (~7.2 km/h) is likely walking.
+  if (!isFinite(speedMps)) return "car";
+  return speedMps <= 2.0 ? "foot" : "car";
+}
+
+function startTouristRouteRealtimeTracking() {
+  if (!navigator.geolocation) return;
+  if (!touristRouteDestLatLng || !touristRoutedLandmarkId) return;
+  if (!touristRouteControl && !(typeof L !== "undefined" && L.Routing)) return;
+
+  // Already watching
+  if (touristRouteWatchId !== null) return;
+
+  touristRouteWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (!touristLocationMap || !touristRouteDestLatLng) return;
+
+      touristUserCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const latlng = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
+      updateTouristUserMarker(latlng, pos.coords.accuracy);
+
+      // Throttle reroutes (OSRM rate limit friendly)
+      const now = Date.now();
+      if (now - touristLastRouteUpdateAt < 1000) return;
+      touristLastRouteUpdateAt = now;
+
+      const speedMps = estimateMoveSpeedMps(pos);
+      const nextMode = chooseRouteModeFromSpeed(speedMps);
+
+      // Re-route from new position to destination (and recreate if mode changed)
+      createOrUpdateTouristRouteControl(latlng, touristRouteDestLatLng, nextMode, false);
+    },
+    () => {
+      // Ignore errors; user may revoke permission mid-route.
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+  );
+}
+
+function cancelTouristRoute() {
+  if (touristRouteControl && touristLocationMap) {
+    try { touristLocationMap.removeControl(touristRouteControl); } catch (e) {}
+  }
+  touristRouteControl = null;
+
+  if (touristRouteLine && touristLocationMap) {
+    try { touristLocationMap.removeLayer(touristRouteLine); } catch (e) {}
+  }
+  touristRouteLine = null;
+  touristRoutedLandmarkId = null;
+  touristRouteDestLatLng = null;
+
+  if (touristLastMileLine && touristLocationMap) {
+    try { touristLocationMap.removeLayer(touristLastMileLine); } catch (e) {}
+  }
+  touristLastMileLine = null;
+
+  if (touristRouteWatchId !== null && navigator.geolocation && navigator.geolocation.clearWatch) {
+    try { navigator.geolocation.clearWatch(touristRouteWatchId); } catch (e) {}
+  }
+  touristRouteWatchId = null;
+  touristLastPosSample = null;
+}
+
+function renderTouristLocationCards() {
+  const container = document.getElementById('touristLocationCards');
+  if (!container) return;
+
+  const arr = Array.from(touristLocationLandmarksById.values());
+  if (!arr.length) {
+    container.innerHTML = '<div class="tourist-location-empty">No landmarks yet.</div>';
+    return;
+  }
+
+  arr.forEach((lm) => {
+    const lat = Number(lm.lat);
+    const lng = Number(lm.lng);
+    lm._distanceKm = (touristUserCoords && isFinite(lat) && isFinite(lng))
+      ? haversineKm(touristUserCoords.lat, touristUserCoords.lng, lat, lng)
+      : Number.POSITIVE_INFINITY;
+  });
+
+  arr.sort((a, b) => (a._distanceKm || 0) - (b._distanceKm || 0));
+  container.innerHTML = "";
+
+  arr.forEach((lm) => {
+    const id = Number(lm.id || 0);
+    if (!id) return;
+
+    const distTxt = (touristUserCoords && isFinite(lm._distanceKm))
+      ? `${lm._distanceKm.toFixed(1)} km away`
+      : "Turn on location to see distance";
+
+    const thumb = lm.image ? `tourism/uploads/${lm.image}` : "dagyang.jpg";
+    const card = document.createElement('div');
+    card.className = 'tourist-location-card';
+    card.dataset.landmarkId = String(id);
+    card.innerHTML = `
+      <img class="tourist-location-thumb" src="${thumb}" alt="${escapeHtml(lm.name || 'Landmark')}" onerror="this.src='dagyang.jpg'"/>
+      <div class="tourist-location-meta">
+        <div class="tourist-location-name">${escapeHtml(lm.name || "Landmark")}</div>
+        <div class="tourist-location-address">${escapeHtml(lm.address || "")}</div>
+        <div class="tourist-location-distance">${escapeHtml(distTxt)}</div>
+      </div>
+    `;
+
+    card.addEventListener('click', () => {
+      const marker = touristLocationMarkerById.get(id);
+      const lat = Number(lm.lat);
+      const lng = Number(lm.lng);
+      if (marker && isFinite(lat) && isFinite(lng)) {
+        touristLocationMap.setView([lat, lng], Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+      }
+      openTouristRouteSheet(lm);
+    });
+
+    container.appendChild(card);
+  });
+}
+
+function loadTouristLocationLandmarks() {
+  if (!touristLocationMarkerCluster) return;
+  touristLocationMarkerCluster.clearLayers();
+  touristLocationLandmarksById.clear();
+  touristLocationMarkerById.clear();
+
+  fetch('tourism/php/get_landmarks.php', { credentials: "same-origin" })
+    .then((r) => r.json())
+    .then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      list.forEach((lm) => {
+        if (!lm || String(lm.category || '') !== 'Landmark') return;
+        const id = Number(lm.id || 0);
+        const lat = Number(lm.lat);
+        const lng = Number(lm.lng);
+        if (!id || !isFinite(lat) || !isFinite(lng)) return;
+
+        touristLocationLandmarksById.set(id, lm);
+        const icon = buildTouristLandmarkIcon(lm);
+        const m = L.marker([lat, lng], { icon });
+        // Do NOT show landmark details on click; only open route sheet and focus pin
+        m.on('click', () => {
+          closeTouristRouteSheet(); // reset any previous sheet/route state
+          touristLocationMap.setView([lat, lng], Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+          openTouristRouteSheet(lm);
+        });
+        touristLocationMarkerCluster.addLayer(m);
+        touristLocationMarkerById.set(id, m);
+      });
+
+      renderTouristLocationCards();
+    })
+    .catch(() => {
+      const container = document.getElementById('touristLocationCards');
+      if (container) container.innerHTML = '<div class="tourist-location-empty">Could not load landmarks.</div>';
+    });
+}
+
+function updateTouristUserMarker(latlng, accuracy) {
+  if (touristUserMarker) {
+    touristUserMarker.setLatLng(latlng);
+    touristUserMarker.setIcon(getTouristAvatarPinIcon());
+  } else {
+    touristUserMarker = L.marker(latlng, { icon: getTouristAvatarPinIcon() })
+      .addTo(touristLocationMap)
+      .bindPopup("You are here");
+  }
+
+  if (touristUserAccuracyCircle) {
+    touristUserAccuracyCircle.setLatLng(latlng).setRadius(accuracy || 30);
+  } else {
+    touristUserAccuracyCircle = L.circle(latlng, { radius: accuracy || 30 }).addTo(touristLocationMap);
+  }
+}
+
+function locateTouristForLocationTab() {
+  const hint = document.getElementById('touristLocationHint');
+  if (!navigator.geolocation) {
+    if (hint) hint.textContent = "Location is not supported by your browser.";
+    return;
+  }
+
+  if (hint) hint.textContent = "Getting your location...";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      touristUserCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const latlng = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
+      updateTouristUserMarker(latlng, pos.coords.accuracy);
+      touristLocationMap.setView(latlng, Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+      if (hint) hint.textContent = "Showing distances from your current location.";
+      renderTouristLocationCards();
+    },
+    () => {
+      if (hint) hint.textContent = "Please allow location access to see distances.";
+    },
+    { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
+  );
+}
+
+function ensureTouristLocationCoords() {
+  return new Promise((resolve, reject) => {
+    if (touristUserCoords && isFinite(touristUserCoords.lat) && isFinite(touristUserCoords.lng)) {
+      resolve(touristUserCoords);
+      return;
+    }
+    if (!navigator.geolocation) {
+      reject(new Error("Geolocation not supported"));
+      return;
+    }
+    const hint = document.getElementById('touristLocationHint');
+    if (hint) hint.textContent = "Getting your location...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        touristUserCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const latlng = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
+        updateTouristUserMarker(latlng, pos.coords.accuracy);
+        touristLocationMap.setView(latlng, Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+        if (hint) hint.textContent = "Showing distances from your current location.";
+        renderTouristLocationCards();
+        resolve(touristUserCoords);
+      },
+      (err) => reject(err),
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
+    );
+  });
+}
+
+function initTouristLocationTab() {
+  const mapEl = document.getElementById('touristLocationMap');
+  if (!mapEl) return;
+
+  // Initialize only once (Leaflet cannot re-init on the same element)
+  if (!touristLocationInitialized) {
+    touristLocationInitialized = true;
+
+    touristLocationMap = L.map('touristLocationMap', {
+      zoomControl: true,
+      maxZoom: 25
+    }).setView([10.7202, 122.5621], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxNativeZoom: 19,
+      maxZoom: 25
+    }).addTo(touristLocationMap);
+
+    touristLocationMarkerCluster = new L.MarkerClusterGroup().addTo(touristLocationMap);
+
+    // Bind location button
+    const btn = document.getElementById('touristLocationBtn');
+    if (btn) btn.addEventListener('click', locateTouristForLocationTab);
+
+    // Bind route sheet buttons + close behavior
+    const backdrop = document.getElementById('touristRouteSheetBackdrop');
+    const sheet = document.getElementById('touristRouteSheet');
+    if (backdrop) backdrop.addEventListener('click', closeTouristRouteSheet);
+    if (sheet) {
+      sheet.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    const goBtn = document.getElementById('touristRouteGoBtn');
+    if (goBtn) {
+      goBtn.addEventListener('click', async () => {
+        if (!touristSelectedLandmarkId) return;
+        const lm = touristLocationLandmarksById.get(touristSelectedLandmarkId);
+        if (!lm) return;
+
+        try {
+          await ensureTouristLocationCoords();
+        } catch (e) {
+          const hint = document.getElementById('touristLocationHint');
+          if (hint) hint.textContent = "Please allow location access to draw a route.";
+          return;
+        }
+
+        drawRouteToLandmark(lm);
+        // After clicking Go to: close sheet but KEEP route
+        closeTouristRouteSheet();
+      });
+    }
+
+    const cancelBtn = document.getElementById('touristRouteCancelBtn');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        // Cancel just closes sheet if no route; if routed, remove route then close
+        if (touristSelectedLandmarkId && touristRoutedLandmarkId === touristSelectedLandmarkId) {
+          cancelTouristRoute();
+        }
+        closeTouristRouteSheet();
+      });
+    }
+
+    // Click anywhere on the map (outside markers) closes the sheet (route stays).
+    touristLocationMap.on('click', () => closeTouristRouteSheet());
+
+    loadTouristLocationLandmarks();
+  }
+
+  // When tab becomes visible, Leaflet needs a resize pass.
+  setTimeout(() => {
+    try {
+      touristLocationMap.invalidateSize();
+    } catch (e) {}
+  }, 80);
+}
 
 function loadFestivities() {
   const listEl = document.getElementById("festivitiesList");
@@ -541,6 +1155,355 @@ function loadFestivities() {
     .catch(() => {
       listEl.innerHTML =
         '<p class="festivities-empty">Could not load events. Please try again.</p>';
+    });
+}
+
+// ================================
+// Landmark cards (Tourist "Destination" tab)
+// ================================
+function truncateLandmarkDescription(text) {
+  const t = (text ?? "").toString().replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  // First 2 sentences (fallback to max length)
+  const sentences = t.split(/(?<=[.!?])\s+/);
+  const first = sentences.slice(0, 2).join(" ");
+  if (sentences.length > 2) return first + "...";
+  if (first.length > 160) return first.substring(0, 160).trim() + "...";
+  return first;
+}
+
+function loadLandmarks() {
+  const listEl = document.getElementById("landmarksList");
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="festivities-loading">Loading landmarks...</div>';
+
+  fetch("tourism/php/get_landmark_cards.php")
+    .then((r) => r.json())
+    .then((landmarks) => {
+      if (!landmarks || landmarks.length === 0) {
+        listEl.innerHTML = '<p class="festivities-empty">No landmarks yet.</p>';
+        return;
+      }
+
+      listEl.innerHTML = "";
+      landmarks.forEach((lm) => {
+        const card = document.createElement("div");
+        card.className = "landmark-card";
+        card.dataset.landmarkId = lm.id;
+
+        const img = lm.image_display || "dagyang.jpg";
+        const address = lm.address || "";
+        const shortDesc = truncateLandmarkDescription(lm.description || "");
+
+        const avgRating = parseFloat(lm.avg_rating) || 0;
+        const ratingsCount = parseInt(lm.ratings_count, 10) || 0;
+        const isFav = !!(lm.is_favorite && lm.is_favorite !== "0");
+        const myRating = parseInt(lm.my_rating, 10) || 0;
+
+        card.innerHTML =
+          '<img class="landmark-card-img" src="' + img + '" alt="' + escapeHtml(lm.name || "Landmark") + '" onerror="this.src=\'dagyang.jpg\'" />' +
+          '<div class="landmark-card-body">' +
+            '<div class="landmark-card-title">' + escapeHtml(lm.name || "Landmark") + '</div>' +
+            '<div class="landmark-card-address">' + escapeHtml(address) + '</div>' +
+            '<div class="landmark-card-desc">' + escapeHtml(shortDesc) + '</div>' +
+            '<div class="landmark-card-meta">' +
+              '<div class="landmark-card-rating">' +
+                '<span class="landmark-card-avg">' + (avgRating > 0 ? avgRating.toFixed(1) : "-") + '</span> ★ ' +
+                '<span class="landmark-card-count">(' + ratingsCount + ')</span>' +
+              '</div>' +
+              '<button type="button" class="landmark-card-fav-btn' + (isFav ? " active" : "") + '" title="Favorite">❤</button>' +
+            '</div>' +
+            '<div class="landmark-card-stars" aria-label="Rate landmark">' +
+              [1,2,3,4,5].map((r) => '<button type="button" class="landmark-star' + (myRating >= r ? " filled" : "") + '" data-rating="' + r + '" aria-label="Rate ' + r + '">★</button>').join("") +
+            '</div>' +
+            '<div class="landmark-card-actions">' +
+              '<button type="button" class="landmark-card-action-btn" data-action="leave">Leave a review</button>' +
+              '<button type="button" class="landmark-card-action-btn" data-action="view">View reviews</button>' +
+            '</div>' +
+          '</div>';
+
+        card.addEventListener("click", (e) => {
+          if (e.target.closest(".landmark-card-fav-btn, .landmark-star, .landmark-card-action-btn")) return;
+          openLandmarkDetailModal(lm);
+        });
+
+        bindLandmarkCardButtons(card, lm);
+        listEl.appendChild(card);
+      });
+    })
+    .catch(() => {
+      listEl.innerHTML = '<p class="festivities-empty">Could not load landmarks.</p>';
+    });
+}
+
+function bindLandmarkCardButtons(card, lm) {
+  const favBtn = card.querySelector(".landmark-card-fav-btn");
+  if (favBtn) {
+    favBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleLandmarkFavorite(lm.id, favBtn, () => loadLandmarks());
+    });
+  }
+
+  card.querySelectorAll(".landmark-star").forEach((star) => {
+    star.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const r = parseInt(star.dataset.rating, 10);
+      if (!r) return;
+      rateLandmark(lm.id, r, () => loadLandmarks());
+    });
+  });
+
+  card.querySelectorAll(".landmark-card-action-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (btn.dataset.action === "leave") {
+        openLandmarkDetailModal(lm);
+        setTimeout(() => {
+          const leaveSec = document.getElementById("landmarkDetailLeaveReviewSection");
+          const reviewsSec = document.getElementById("landmarkDetailReviewsSection");
+          const txt = document.getElementById("landmarkDetailReviewText");
+          if (leaveSec) leaveSec.style.display = "block";
+          if (reviewsSec) reviewsSec.style.display = "none";
+          if (txt) txt.focus();
+          const viewBtn = document.getElementById("landmarkDetailViewReviewsBtn");
+          if (viewBtn) viewBtn.textContent = "View reviews";
+        }, 100);
+      } else {
+        openLandmarkDetailModal(lm);
+        setTimeout(() => {
+          const leaveSec = document.getElementById("landmarkDetailLeaveReviewSection");
+          const reviewsSec = document.getElementById("landmarkDetailReviewsSection");
+          const viewBtn = document.getElementById("landmarkDetailViewReviewsBtn");
+          if (leaveSec) leaveSec.style.display = "none";
+          if (reviewsSec) reviewsSec.style.display = "block";
+          if (viewBtn) viewBtn.textContent = "Hide reviews";
+          loadLandmarkReviews(lm.id);
+        }, 100);
+      }
+    });
+  });
+}
+
+function toggleLandmarkFavorite(landmarkId, btnEl, onDone) {
+  const fd = new FormData();
+  fd.append("landmark_id", landmarkId);
+  fetch("tourism/php/toggle_landmark_favorite.php", { method: "POST", body: fd, credentials: "same-origin" })
+    .then((r) => r.json())
+    .then((res) => {
+      if (res && res.status === "success") {
+        btnEl.classList.toggle("active", res.favorite === "added");
+        if (onDone) onDone();
+      } else {
+        alert((res && res.message) || "Please log in to favorite.");
+      }
+    })
+    .catch(() => alert("Error toggling favorite."));
+}
+
+function rateLandmark(landmarkId, rating, onDone) {
+  const fd = new FormData();
+  fd.append("landmark_id", landmarkId);
+  fd.append("rating", rating);
+  fetch("tourism/php/rate_landmark.php", { method: "POST", body: fd, credentials: "same-origin" })
+    .then((r) => r.json())
+    .then((res) => {
+      if (res && res.status === "success") {
+        if (onDone) onDone(res);
+      } else {
+        alert((res && res.message) || "Please log in to rate.");
+      }
+    })
+    .catch(() => alert("Error saving rating."));
+}
+
+let currentLandmarkInModal = null;
+
+function openLandmarkDetailModal(lm) {
+  currentLandmarkInModal = lm;
+
+  const modal = document.getElementById("landmarkDetailModal");
+  const title = document.getElementById("landmarkDetailTitle");
+  const addressEl = document.getElementById("landmarkDetailAddress");
+  const descEl = document.getElementById("landmarkDetailDescription");
+  const imgEl = document.getElementById("landmarkDetailImage");
+  const galleryEl = document.getElementById("landmarkDetailGallery");
+  const favBtn = document.getElementById("landmarkDetailFavBtn");
+  const starsEl = document.getElementById("landmarkDetailStars");
+  const ratingsSummary = document.getElementById("landmarkDetailRatingsSummary");
+  const reviewsSection = document.getElementById("landmarkDetailReviewsSection");
+  const leaveSection = document.getElementById("landmarkDetailLeaveReviewSection");
+
+  const leaveBtn = document.getElementById("landmarkDetailLeaveReviewBtn");
+  const viewBtn = document.getElementById("landmarkDetailViewReviewsBtn");
+
+  if (!modal) return;
+
+  if (title) title.textContent = lm.name || "Landmark";
+  if (addressEl) addressEl.textContent = lm.address || "";
+  if (descEl) descEl.textContent = lm.description || "";
+
+  if (imgEl) {
+    const src = lm.image_display || "dagyang.jpg";
+    imgEl.src = src;
+    imgEl.style.display = src ? "block" : "none";
+  }
+
+  // Landmark gallery (optional multiple pictures)
+  if (galleryEl) {
+    const pics = Array.isArray(lm.landmark_images_display) ? lm.landmark_images_display : [];
+    if (pics.length) {
+      galleryEl.innerHTML = pics
+        .map((url) => '<img class="landmark-gallery-img" src="' + url + '" alt="Landmark photo" />')
+        .join("");
+      galleryEl.style.display = "flex";
+    } else {
+      galleryEl.innerHTML = "";
+      galleryEl.style.display = "none";
+    }
+  }
+
+  // Favorite
+  if (favBtn) {
+    favBtn.classList.toggle("active", !!(lm.is_favorite && lm.is_favorite !== "0"));
+    favBtn.onclick = () => {
+      toggleLandmarkFavorite(lm.id, favBtn, () => {
+        if (currentLandmarkInModal) currentLandmarkInModal.is_favorite = favBtn.classList.contains("active") ? 1 : 0;
+      });
+    };
+  }
+
+  // Stars
+  if (starsEl) {
+    const myRating = parseInt(lm.my_rating, 10) || 0;
+    starsEl.querySelectorAll(".event-rating-star").forEach((s) => {
+      s.classList.toggle("filled", parseInt(s.dataset.rating, 10) <= myRating);
+      s.onclick = () => {
+        const r = parseInt(s.dataset.rating, 10);
+        if (!r) return;
+        // Update rating via endpoint, then reload cards/reviews
+        rateLandmark(lm.id, r, (res) => {
+          starsEl.querySelectorAll(".event-rating-star").forEach((ss) => {
+            ss.classList.toggle("filled", parseInt(ss.dataset.rating, 10) <= r);
+          });
+
+          if (ratingsSummary && res) {
+            const avgSpan = ratingsSummary.querySelector(".event-avg-rating");
+            const countSpan = ratingsSummary.querySelector(".event-ratings-count");
+            const avg = parseFloat(res.avg_rating) || 0;
+            const cnt = parseInt(res.ratings_count, 10) || 0;
+            if (avgSpan) avgSpan.textContent = avg > 0 ? avg.toFixed(1) : "-";
+            if (countSpan) countSpan.textContent = "(" + cnt + " ratings)";
+          }
+        });
+      };
+    });
+  }
+
+  const avgRating = parseFloat(lm.avg_rating) || 0;
+  const ratingsCount = parseInt(lm.ratings_count, 10) || 0;
+  if (ratingsSummary) {
+    const avgSpan = ratingsSummary.querySelector(".event-avg-rating");
+    const countSpan = ratingsSummary.querySelector(".event-ratings-count");
+    if (avgSpan) avgSpan.textContent = avgRating > 0 ? avgRating.toFixed(1) : "-";
+    if (countSpan) countSpan.textContent = "(" + ratingsCount + " ratings)";
+  }
+
+  if (reviewsSection) reviewsSection.style.display = "none";
+  if (leaveSection) leaveSection.style.display = "none";
+
+  if (leaveBtn) {
+    leaveBtn.onclick = () => {
+      if (reviewsSection) reviewsSection.style.display = "none";
+      if (leaveSection) leaveSection.style.display = "block";
+      const txt = document.getElementById("landmarkDetailReviewText");
+      if (txt) txt.value = "";
+      if (viewBtn) viewBtn.textContent = "View reviews";
+    };
+  }
+
+  if (viewBtn) {
+    viewBtn.onclick = () => {
+      if (reviewsSection && reviewsSection.style.display === "block") {
+        reviewsSection.style.display = "none";
+        viewBtn.textContent = "View reviews";
+        return;
+      }
+      if (leaveSection) leaveSection.style.display = "none";
+      loadLandmarkReviews(lm.id);
+      if (reviewsSection) reviewsSection.style.display = "block";
+      viewBtn.textContent = "Hide reviews";
+    };
+  }
+
+  const submitBtn = document.getElementById("landmarkDetailSubmitReviewBtn");
+  const reviewText = document.getElementById("landmarkDetailReviewText");
+  if (submitBtn && reviewText) {
+    submitBtn.onclick = () => {
+      const text = reviewText.value.trim();
+      if (!text) {
+        alert("Please enter your review.");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("landmark_id", lm.id);
+      fd.append("review_text", text);
+      fetch("tourism/php/add_landmark_review.php", { method: "POST", body: fd, credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res && res.status === "success") {
+            alert("Review submitted!");
+            reviewText.value = "";
+            if (leaveSection) leaveSection.style.display = "none";
+            loadLandmarkReviews(lm.id);
+            if (reviewsSection) reviewsSection.style.display = "block";
+            if (viewBtn) viewBtn.textContent = "Hide reviews";
+          } else {
+            alert((res && res.message) || "Please log in to leave a review.");
+          }
+        })
+        .catch(() => alert("Failed to submit review."));
+    };
+  }
+
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function loadLandmarkReviews(landmarkId) {
+  const listEl = document.getElementById("landmarkDetailReviewsList");
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="event-reviews-loading">Loading...</p>';
+
+  fetch("tourism/php/get_landmark_reviews.php?landmark_id=" + landmarkId)
+    .then((r) => r.json())
+    .then((reviews) => {
+      if (!reviews || reviews.length === 0) {
+        listEl.innerHTML = "<p class=\"event-reviews-empty\">No reviews yet.</p>";
+        return;
+      }
+      listEl.innerHTML = reviews
+        .map((r) => {
+          const avatarUrl = r.reviewer_avatar && r.reviewer_avatar.trim() ? r.reviewer_avatar : "tourism/uploads/userPin.png";
+          const avatar = '<img src="' + avatarUrl + '" alt="" class="event-reviewer-avatar" onerror="this.src=\'tourism/uploads/userPin.png\'" />';
+          const safeText = (r.review_text || "").replace(/</g, "&lt;");
+          return (
+            '<div class="event-review-item">' +
+            avatar +
+            '<div class="event-review-content">' +
+            "<strong>" +
+            (r.reviewer_name || "User") +
+            '</strong> <span class="event-review-date">' +
+            (r.created_at || "") +
+            '</span><p>' +
+            safeText +
+            "</p></div></div>"
+          );
+        })
+        .join("");
+    })
+    .catch(() => {
+      listEl.innerHTML = "<p class=\"event-reviews-empty\">Could not load reviews.</p>";
     });
 }
 

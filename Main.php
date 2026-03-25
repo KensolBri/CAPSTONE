@@ -29,8 +29,11 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Main Page</title>
-  <link rel="stylesheet" href="MainStyle.css?v=13" />
-  <link rel="stylesheet" href="eventCardsShared.css?v=2" />
+  <link rel="stylesheet" href="MainStyle.css?v=14" />
+  <link rel="stylesheet" href="eventCardsShared.css?v=5" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"/>
 </head>
 <body>
 
@@ -95,7 +98,7 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
 
   <div id="appContent">
     <section class="hero">
-      <img src="IloChurch.jpg" alt="Iloilo City, Philippines" />
+      <img src="Iloilo.gif" alt="Iloilo City, Philippines" />
       <div class="city-label">ILOILO CITY, PHILIPPINES</div>
     </section>
 
@@ -188,9 +191,29 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
 
   
   <section id="location" class="full-content hidden">
-    <h2>Location</h2>
-    <p>Find your current location and nearby landmarks.</p>
-    <button class="back-btn">⬅ Back</button>
+    <div class="icon-header">
+      <h2><img src="location.png" alt="Location Icon" class="map-icon"/> Location</h2>
+      <button class="back-btn">⬅ Back</button>
+    </div>
+    <div id="touristLocationMap" class="tourist-location-map" aria-label="Landmarks map"></div>
+    <div class="tourist-location-controls">
+      <button type="button" id="touristLocationBtn" class="tourist-location-btn">Turn on location</button>
+      <div id="touristLocationHint" class="tourist-location-hint">Enable location to see how far each landmark is.</div>
+    </div>
+    <div id="touristLocationCards" class="tourist-location-cards">
+      <div class="tourist-location-empty">Loading landmarks...</div>
+    </div>
+
+    <!-- Action sheet: Landmark route controls -->
+    <div id="touristRouteSheetBackdrop" class="tourist-route-backdrop" style="display:none;" aria-hidden="true"></div>
+    <div id="touristRouteSheet" class="tourist-route-sheet" style="display:none;" aria-hidden="true">
+      <div class="tourist-route-sheet-handle" aria-hidden="true"></div>
+      <div class="tourist-route-sheet-title" id="touristRouteTitle">Landmark</div>
+      <div class="tourist-route-sheet-actions">
+        <button type="button" id="touristRouteGoBtn" class="tourist-route-action tourist-route-primary">Go to</button>
+        <button type="button" id="touristRouteCancelBtn" class="tourist-route-action tourist-route-secondary">Cancel</button>
+      </div>
+    </div>
   </section>
 
 <section id="profile" class="full-content hidden">
@@ -508,11 +531,68 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
   </div>
 </div>
 
+<!-- Landmark Detail Modal (tourist) -->
+<div id="landmarkDetailModal" class="event-detail-modal" style="display:none;" aria-hidden="true">
+  <div class="event-detail-modal-content">
+    <button type="button" id="landmarkDetailModalClose" class="event-detail-modal-close">&times;</button>
+    <div id="landmarkDetailBody">
+      <div class="event-detail-top-row">
+        <div class="event-detail-top-left">
+          <button type="button" id="landmarkDetailFavBtn" class="event-fav-btn" title="Favorite">❤</button>
+          <div class="event-detail-rate-stars" id="landmarkDetailStars">
+            <span class="event-rating-star" data-rating="1">★</span>
+            <span class="event-rating-star" data-rating="2">★</span>
+            <span class="event-rating-star" data-rating="3">★</span>
+            <span class="event-rating-star" data-rating="4">★</span>
+            <span class="event-rating-star" data-rating="5">★</span>
+          </div>
+        </div>
+        <div class="event-detail-top-right" id="landmarkDetailRatingsSummary">
+          <span class="event-avg-rating"></span>
+          <span class="event-ratings-count"></span>
+        </div>
+      </div>
+
+      <h3 id="landmarkDetailTitle"></h3>
+      <p id="landmarkDetailAddress"></p> <br>
+      <p id="landmarkDetailDescription"></p>
+
+      <div id="landmarkDetailImageWrap" class="event-plan-zoom-wrap">
+        <img id="landmarkDetailImage" alt="Landmark" class="event-plan-zoom-img" />
+      </div>
+
+      <div id="landmarkDetailGallery" class="landmark-gallery" style="display:none;"></div>
+
+      <div class="event-detail-bottom-row">
+        <button type="button" id="landmarkDetailLeaveReviewBtn" class="event-detail-btn">Leave a review</button>
+        <button type="button" id="landmarkDetailViewReviewsBtn" class="event-detail-btn">View reviews</button>
+      </div>
+
+      <div id="landmarkDetailReviewsSection" class="event-reviews-section" style="display:none;">
+        <h4>Reviews</h4>
+        <div id="landmarkDetailReviewsList"></div>
+      </div>
+      <div id="landmarkDetailLeaveReviewSection" class="event-leave-review-section" style="display:none;">
+        <textarea id="landmarkDetailReviewText" placeholder="Write your review..." rows="3"></textarea>
+        <button type="button" id="landmarkDetailSubmitReviewBtn" class="event-detail-btn">Submit review</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
   <section id="destination" class="full-content hidden">
-    <h2>Destination</h2>
-    <p>Top tourist spots: Miag-ao Church, Guimaras Island, and more.</p>
-    <button class="back-btn">⬅ Back</button>
+    <div class="icon-header">
+      <h2>
+        <img src="destine.png" alt="Landmark Icon" class="map-icon" />
+        Landmarks
+      </h2>
+      <button class="back-btn">⬅ Back</button>
+    </div>
+
+    <div id="landmarksList" class="landmarks-grid">
+      <div class="festivities-loading">Loading landmarks...</div>
+    </div>
   </section>
 </div>
 
@@ -540,6 +620,15 @@ document.addEventListener("DOMContentLoaded", function() {
 <?php } ?>
 </script>
 
-  <script src="Main.js?v=12"></script>
+  <script>
+    window.touristUserFullName = <?php echo json_encode($fullName ?: ''); ?>;
+    window.touristUserAvatarUrl = <?php echo json_encode($profilePicture ?: ''); ?>;
+  </script>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+
+  <script src="Main.js?v=15"></script>
 </body>
 </html>

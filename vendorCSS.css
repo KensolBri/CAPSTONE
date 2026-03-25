@@ -161,6 +161,18 @@ body {
   padding: 14px 14px 28px;
 }
 
+@media (min-width: 992px) {
+  .sheet {
+    /* Drop the sheet slightly to reveal more of the hero GIF on desktop */
+    margin-top: 8px;
+  }
+
+  .city-label {
+    /* Nudge the label down so it sits lower on the GIF */
+    bottom: 10px;
+  }
+}
+
 /* Icon grid */
 .icon-img {
   width: 60px;

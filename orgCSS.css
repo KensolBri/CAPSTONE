@@ -169,6 +169,18 @@ body {
   padding: 14px 14px 28px;
 }
 
+@media (min-width: 992px) {
+  .sheet {
+    /* Drop the sheet slightly to reveal more of the hero GIF on desktop */
+    margin-top: 8px;
+  }
+
+  .city-label {
+    /* Nudge the label down so it sits lower on the GIF */
+    bottom: 10px;
+  }
+}
+
 /* Icon grid */
 .icon-img {
   width: 60px;
@@ -353,6 +365,20 @@ body {
   width: 30px;
   height: 30px;
   object-fit: contain;
+}
+
+/* LGU: Landmarks Map (iframe) */
+.lgu-landmarks-iframe-wrap {
+  width: 100%;
+}
+
+.lgu-landmarks-iframe {
+  width: 100%;
+  height: 82vh;
+  min-height: 560px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
 }
 
 /* Hidden helper class */
