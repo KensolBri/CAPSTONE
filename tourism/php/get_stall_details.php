@@ -8,6 +8,10 @@ error_reporting(E_ALL);
 header('Content-Type: application/json');
 
 require '../db.php';
+$host = $_SERVER['HTTP_HOST'] ?? '';
+$isHosted = stripos($host, 'free.nf') !== false || stripos($host, 'infinityfreeapp.com') !== false;
+$usersDb = getenv('DB_NAME_USERS') ?: ($isHosted ? 'if0_41601200_lokal_users' : 'lokal_users');
+$usersTable = $usersDb . '.users';
 
 $stall_id = isset($_GET['stall_id']) ? (int)$_GET['stall_id'] : 0;
 if ($stall_id <= 0) {
@@ -60,7 +64,7 @@ $vendor_id = (int)$appRow['vendor_id'];
 // Fetch vendor name (for LGU / map displays)
 $vendor_name = '';
 if ($vendor_id > 0) {
-    $vendorStmt = $conn->prepare('SELECT full_name FROM lokal_users.users WHERE id = ?');
+    $vendorStmt = $conn->prepare("SELECT full_name FROM {$usersTable} WHERE id = ?");
     if ($vendorStmt) {
         $vendorStmt->bind_param('i', $vendor_id);
         $vendorStmt->execute();
@@ -250,6 +254,7 @@ if (!$useAttachments && !empty($products) && in_array($desiredType, ['foods','be
  * 4) Build stall object for JSON
  */
 $stall = [
+    'application_id'  => (int)$appRow['application_id'],
     'stall_id'        => $stall_id,
     'stall_name'      => $appRow['stall_name'],
     'product_type'    => $appRow['product_type'],

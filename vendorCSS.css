@@ -325,6 +325,11 @@ body {
   object-fit: contain;
 }
 
+.event-center-pin-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
 /* Helper class */
 .hidden {
   display: none;

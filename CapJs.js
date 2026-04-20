@@ -104,9 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
 loginSwitch.addEventListener("click", () => {
     createPopup.classList.remove("show");     // close register popup
     accountTypePopup.classList.remove("show"); // ensure account popup hidden
-
-    // Open login choice popup
-    loginChoicePopup.classList.add("show");
+    loginPopup.classList.add("show");
 
     // Clear the form fields (optional)
     clearPopupInputs(createPopup);
@@ -120,40 +118,18 @@ closeCreate.addEventListener("click", () => {
 
 
   // =======================
-  // LOGIN CHOICE POPUP
+  // LOGIN POPUP (direct, no role selection)
   // =======================
   const loginBtn = document.getElementById("loginBttn");
-  const loginChoicePopup = document.getElementById("loginChoicePopup");
-  const loginTypeButtons = document.querySelectorAll(".login-type");
-  const closeLoginChoice = document.getElementById("closeLoginChoice");
 
   const loginPopup = document.getElementById("loginPopup");
   const closeLogin = document.getElementById("closeLogin");
-  const loginTypeInput = document.getElementById("loginTypeInput");
 
-  // Open Login Choice
+  // Open Login Popup
   loginBtn.addEventListener("click", () => {
     popup.classList.remove("show");
-    loginChoicePopup.classList.add("show");
+    loginPopup.classList.add("show");
   });
-
-  // Login choice → login form
-  loginTypeButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-      loginTypeInput.value = btn.getAttribute("data-type");
-      loginChoicePopup.classList.remove("show");
-      loginPopup.classList.add("show");
-    });
-  });
-
-  closeLoginChoice.addEventListener("click", () => {
-    loginChoicePopup.classList.remove("show");
-  });
-
-  loginChoicePopup.addEventListener("click", (e) => {
-    if (e.target === loginChoicePopup) loginChoicePopup.classList.remove("show");
-  });
-
 
   // =======================
   // LOGIN POPUP
@@ -180,7 +156,6 @@ loginForm.addEventListener("submit", function(e) {
     e.preventDefault();
 
     const formData = new FormData(loginForm);
-    formData.append("login_type", loginTypeInput.value); // send selected login type
 
     fetch("loginUsers.php", {
         method: "POST",

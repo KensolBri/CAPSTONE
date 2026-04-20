@@ -381,6 +381,11 @@ if ($userAvatarUrl && strpos($userAvatarUrl, 'http://') !== 0 && strpos($userAva
     object-fit: cover;
 }
 
+.event-center-pin-icon {
+    background: transparent !important;
+    border: none !important;
+}
+
 
 
     </style>

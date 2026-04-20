@@ -1,8 +1,23 @@
 <?php
-$DB_HOST = "localhost";
-$DB_USER = "root";
-$DB_PASS = "";
-$DB_NAME = "lokal_users";
+$httpHost = $_SERVER['HTTP_HOST'] ?? '';
+$isHosted = stripos($httpHost, 'free.nf') !== false || stripos($httpHost, 'infinityfreeapp.com') !== false;
+
+// Local defaults (XAMPP)
+$localHost = "localhost";
+$localUser = "root";
+$localPass = "";
+$localDbUsers = "lokal_users";
+
+// Hosted defaults (InfinityFree)
+$prodHost = "sql302.infinityfree.com";
+$prodUser = "if0_41601200";
+$prodPass = getenv('DB_PASS') ?: "Yasuo133";
+$prodDbUsers = "if0_41601200_lokal_users";
+
+$DB_HOST = getenv('DB_HOST') ?: ($isHosted ? $prodHost : $localHost);
+$DB_USER = getenv('DB_USER') ?: ($isHosted ? $prodUser : $localUser);
+$DB_PASS = $isHosted ? $prodPass : (getenv('DB_PASS') ?: $localPass);
+$DB_NAME = getenv('DB_NAME_USERS') ?: ($isHosted ? $prodDbUsers : $localDbUsers);
 
 // Prefer mysqli if available; otherwise fall back to PDO.
 // This helps avoid ngrok/runtime environments where mysqli isn't enabled.

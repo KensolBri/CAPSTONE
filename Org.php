@@ -26,8 +26,8 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
   <!-- Custom CSS -->
-    <link rel="stylesheet" href="orgCSS.css?v=3" />
-    <link rel="stylesheet" href="vendorCSS.css?v=4" />
+    <link rel="stylesheet" href="orgCSS.css?v=<?php echo @filemtime(__DIR__ . '/orgCSS.css') ?: time(); ?>" />
+    <link rel="stylesheet" href="vendorCSS.css?v=<?php echo @filemtime(__DIR__ . '/vendorCSS.css') ?: time(); ?>" />
 </head>
 <body>
 
@@ -140,14 +140,47 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
         </div>
       </div>
 
+      <div id="stallLayoutTools" class="stall-layout-tools" style="display:none;">
+        <button type="button" id="addMarkerBtn" class="stall-layout-btn">Add Marker</button>
+        <button type="button" id="addStallBtn" class="stall-layout-btn">Add Stall Space</button>
+      </div>
+
       <!-- === Your EXISTING MAP CONTAINER === -->
       <div id="mapContainer">
         <div id="map"></div>
       </div>
 
+      <div id="eventPolygonFlowBox" class="event-polygon-flow" style="display:none;">
+        <div id="eventPolygonFlowText" class="event-polygon-flow-text"></div>
+        <div class="event-polygon-flow-color">
+          <label for="eventPolygonColor">Polygon color</label>
+          <input type="color" id="eventPolygonColor" value="#008000" />
+        </div>
+        <div class="event-polygon-flow-actions">
+          <button type="button" id="startEventPolygonBtn" class="event-polygon-btn">Create Event Polygon</button>
+          <button type="button" id="cancelEventPolygonBtn" class="event-polygon-btn secondary">Cancel Event Setup</button>
+        </div>
+      </div>
+
 <!-- Application list view under the map (for Stall Applications) -->
 <div id="applicationListPanel">
-  <h3>APPLICATION LIST VIEW</h3>
+  <div class="app-list-header">
+    <h3>APPLICATION LIST VIEW</h3>
+    <div class="app-list-controls">
+      <input
+        type="text"
+        id="applicationSearchInput"
+        placeholder="Search by stall name, vendor name, product type"
+      />
+      <select id="applicationStatusFilter">
+        <option value="">All status</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+  </div>
   <div class="application-table-wrapper">
     <table id="applicationTable">
       <thead>
@@ -167,6 +200,7 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
       </tbody>
     </table>
   </div>
+  <div id="applicationPagination" class="application-pagination"></div>
 </div>
 
 <!-- Festival / Events stall summary under the map (for Stall Layout) -->
@@ -208,13 +242,6 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
   <h3 id="formTitle"></h3>
   <input type="hidden" id="markerId">
 
-  <!-- 🔹 NEW: Marker Type -->
-  <label>Marker Type:</label><br>
-  <select id="markerType">
-    <option value="poi">Place / Event Marker</option>
-    <option value="stall">Stall Space</option>
-  </select><br>
-
   <label>Name:</label><br><input type="text" id="markerName"><br>
   <label>Category:</label><br>
   <select id="markerCategory">
@@ -224,15 +251,18 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
     <option value="Events">Events</option>
   </select><br>
   <label>Description:</label><br><textarea id="markerDescription" rows="3"></textarea><br>
-  <label>Icon Type:</label><br>
-  <select id="markerIconType">
-    <option value="round">Round</option>
-    <option value="square">Square</option>
-  </select><br>
   <label>Image (optional):</label><br><input type="file" id="markerImage"><br><br>
   <button id="saveMarker">Save</button>
   <button id="deleteMarker">Delete</button>
   <button id="cancelMarker">Cancel</button>
+</div>
+
+<div id="stallStatusModal" class="lgu-modal" style="display:none;">
+  <div class="lgu-modal-content">
+    <button type="button" id="stallStatusModalClose" class="lgu-modal-close">&times;</button>
+    <h3 id="stallStatusModalTitle" class="lgu-modal-title">Stall</h3>
+    <div id="stallStatusModalBody"></div>
+  </div>
 </div>
 
     </section>
@@ -246,6 +276,7 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
       <div class="event-details-content">
         <button type="button" id="lguAddEventBtn" class="lgu-add-event-btn">+ Add Event</button>
         <div id="lguEventsList"></div>
+        <div id="lguEventsPagination" class="lgu-events-pagination"></div>
       </div>
     </section>
 
@@ -253,8 +284,13 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
     <div id="lguAddEventModal" class="lgu-modal" style="display:none;">
       <div class="lgu-modal-content lgu-modal-wide">
         <button type="button" id="lguAddEventModalClose" class="lgu-modal-close">&times;</button>
-        <h3 class="lgu-modal-title">Add Event</h3>
+        <h3 class="lgu-modal-title" id="lguAddEventModalTitle">Add Event</h3>
         <form id="lguAddEventForm" enctype="multipart/form-data">
+          <input type="hidden" name="event_id" id="lguEventId" />
+          <input type="hidden" name="existing_event_image_display" id="lguExistingEventImageDisplay" />
+          <input type="hidden" name="existing_event_plan" id="lguExistingEventPlan" />
+          <input type="hidden" name="polygon_id" id="lguEventPolygonId" />
+
           <label>Event Name:</label>
           <input type="text" name="event_name" required placeholder="e.g. Dinagyang street dance competition" />
 
@@ -267,11 +303,6 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
           <label>Location:</label>
           <input type="text" name="location" required placeholder="e.g. Iloilo City" />
 
-          <label>Ongoing Event Parameter:</label>
-          <select name="polygon_id" id="lguEventPolygonSelect">
-            <option value="">-- Select polygon (optional) --</option>
-          </select>
-
           <label>Event Image Display (for tourist card background):</label>
           <input type="file" name="event_image_display" accept="image/*" />
 
@@ -280,7 +311,7 @@ $accountType    = $_SESSION['account_type'] ?? 'lgu';
 
           <div class="lgu-modal-actions">
             <button type="button" id="lguAddEventCancel" class="btn-secondary">Cancel</button>
-            <button type="submit" class="btn-primary">Add Event</button>
+            <button type="submit" id="lguAddEventSubmitBtn" class="btn-primary">Add Event</button>
           </div>
         </form>
       </div>
@@ -465,6 +496,7 @@ window.addEventListener("beforeunload", function () {
 
 
   <!-- Your existing map JS + new dashboard behavior -->
-  <script src="orgJS.js"></script>
+  <script src="orgJS.js?v=<?php echo @filemtime(__DIR__ . '/orgJS.js') ?: time(); ?>"></script>
+  <script src="searchShared.js?v=1"></script>
 </body>
 </html>

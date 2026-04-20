@@ -68,20 +68,6 @@
   </div>
 </div>
 
-<!-- LOGIN CHOICE POPUP -->
-<div id="loginChoicePopup" class="popup">
-  <div class="popup-content">
-    <span class="close" id="closeLoginChoice">&times;</span>
-    <h2>Log In As?</h2>
-
-    <button class="popup-btn login-type" data-type="tourist">A Tourist</button>
-    <button class="popup-btn login-type" data-type="lgu">An LGU</button>
-    <button class="popup-btn login-type" data-type="vendor">A Vendor</button>
-  </div>
-</div>
-
-
-
 <div id="loginPopup" class="popup">
   <div class="popup-content">
     <span class="close" id="closeLogin">&times;</span>
@@ -92,7 +78,6 @@
         <input type="password" id="loginPassword" name="password" placeholder="Password" required>
         <i class="fa-solid fa-eye toggle-password" data-target="loginPassword"></i>
       </div>
-      <input type="hidden" name="loginType" id="loginTypeInput">
       <button type="submit" class="popup-btn">LOGIN</button>
     </form>
   </div>

@@ -19,7 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 try {
 $email = $_POST['email'] ?? '';
 $password = $_POST['password'] ?? '';
-$login_type = $_POST['login_type'] ?? ''; // chosen login type
 
 // include profile_picture so we can restore avatar on login
 if ($conn instanceof PDO) {
@@ -32,16 +31,7 @@ if ($conn instanceof PDO) {
     $row = $stmt->fetch();
 
     if ($row && !empty($row['password']) && password_verify($password, $row['password'])) {
-        $account_type = $row['account_type'];
-
-        // ⬅️ CHECK IF USER IS LOGGING IN AS THE CORRECT ACCOUNT TYPE
-        if ($login_type !== $account_type) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Wrong login type selected.'
-            ]);
-            exit;
-        }
+        $account_type = $row['account_type'] ?? '';
 
         // SUCCESSFULL LOGIN
         $_SESSION['user_id'] = $row['id'];
@@ -56,7 +46,7 @@ if ($conn instanceof PDO) {
         echo json_encode([
             'status' => 'success',
             'message' => 'Login successful',
-            'account_type' => $row['account_type'] // for redirect
+            'account_type' => $account_type // for redirect
         ]);
     } else {
         echo json_encode([
@@ -75,15 +65,6 @@ if ($conn instanceof PDO) {
     $stmt->fetch();
 
     if ($hashed_password && password_verify($password, $hashed_password)) {
-        // ⬅️ CHECK IF USER IS LOGGING IN AS THE CORRECT ACCOUNT TYPE
-        if ($login_type !== $account_type) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Wrong login type selected.'
-            ]);
-            exit;
-        }
-
         // SUCCESSFULL LOGIN
         $_SESSION['user_id'] = $id;
         $_SESSION['full_name'] = $full_name;

@@ -23,6 +23,10 @@ var markerCluster = new L.MarkerClusterGroup().addTo(map);
 var tempMarker   = null;
 var cityBoundaryBounds = null;
 var stallLayer   = L.layerGroup().addTo(map);
+var polygonLayersById = new Map();
+var polygonCentersById = new Map();
+var polygonColorsById = new Map();
+var eventCenterLayer = L.layerGroup().addTo(map);
 
 var userMarker = null;
 var userAccuracyCircle = null;
@@ -32,6 +36,68 @@ var isFollowingUser = false;
 // NOTE: map.php lives in /tourism/, but assets are stored under /CAPSTONE/tourism/.
 // Using "../tourism/..." keeps the path valid even when the app is served from /CAPSTONE/.
 var DEFAULT_PIN_ICON = '../tourism/uploads/userPin.png';
+
+function normalizeTourismAssetPath(path) {
+    var p = (path || '').toString().trim();
+    if (!p) return '';
+    if (/^https?:\/\//i.test(p) || p.startsWith('../') || p.startsWith('./') || p.startsWith('/')) return p;
+    if (p.indexOf('tourism/') === 0) return '../' + p;
+    return p;
+}
+
+function darkenHexColor(color, amount) {
+    var c = (color || '').toString().trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) return '#1e3a8a';
+    if (c.length === 4) c = '#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    var r = parseInt(c.substr(1, 2), 16);
+    var g = parseInt(c.substr(3, 2), 16);
+    var b = parseInt(c.substr(5, 2), 16);
+    var f = Math.max(0, Math.min(1, amount || 0.38));
+    r = Math.max(0, Math.round(r * (1 - f)));
+    g = Math.max(0, Math.round(g * (1 - f)));
+    b = Math.max(0, Math.round(b * (1 - f)));
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function buildEventCenterPinIcon(imageUrl, polygonColor) {
+    var safeImage = normalizeTourismAssetPath(imageUrl).replace(/"/g, '&quot;');
+    var borderColor = darkenHexColor(polygonColor || '#2563eb', 0.38);
+    var inner = safeImage
+        ? '<span style="width:42px;height:42px;border-radius:50%;overflow:hidden;border:2px solid ' + borderColor + ';box-shadow:0 2px 6px rgba(0,0,0,.22);display:inline-flex;"><img src="' + safeImage + '" style="width:100%;height:100%;object-fit:cover"></span>'
+        : '<span style="width:42px;height:42px;border-radius:50%;background:' + borderColor + ';border:2px solid ' + borderColor + ';box-shadow:0 2px 6px rgba(0,0,0,.22);display:inline-flex;"></span>';
+    var html = '<div style="position:relative;width:53px;height:74px;display:flex;align-items:flex-start;justify-content:center;">' +
+        inner +
+        '<span style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid ' + borderColor + ';"></span>' +
+        '</div>';
+    return L.divIcon({
+        className: 'event-center-pin-icon',
+        html: html,
+        iconSize: [53, 74],
+        iconAnchor: [26, 72],
+        popupAnchor: [0, -64]
+    });
+}
+
+function loadEventCenterMarkers() {
+    if (!eventCenterLayer) return;
+    eventCenterLayer.clearLayers();
+
+    $.getJSON('php/get_events.php', function (events) {
+        (events || []).forEach(function (ev) {
+            var pid = parseInt(ev.polygon_id || 0, 10);
+            if (!pid) return;
+            var center = polygonCentersById.get(pid);
+            if (!center) return;
+            var polyColor = polygonColorsById.get(pid) || '#2563eb';
+
+            var marker = L.marker(center, {
+                icon: buildEventCenterPinIcon(ev.event_image_display || '', polyColor),
+                zIndexOffset: 5000
+            }).bindPopup('<b>' + (ev.event_name || 'Event') + '</b><br>' + (ev.location || ''));
+            eventCenterLayer.addLayer(marker);
+        });
+    });
+}
 
 function getUserAvatarPinIcon() {
     var avatarUrl = typeof userAvatarUrl !== 'undefined' ? userAvatarUrl : '';
@@ -115,6 +181,55 @@ function stopLocateUser() {
     map.stopLocate();           // stops Leaflet’s internal watchPosition
 }
 
+function updateTouristMapUserFromExternal(lat, lng, accuracy) {
+    var role = (typeof userRole !== 'undefined') ? userRole : accountType;
+    var useAvatarPin = (role === 'tourist' || role === '');
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    var ll = L.latLng(lat, lng);
+
+    if (userMarker) {
+        userMarker.setLatLng(ll);
+        if (useAvatarPin && userMarker.setIcon) userMarker.setIcon(getUserAvatarPinIcon());
+    } else {
+        if (useAvatarPin) userMarker = L.marker(ll, { icon: getUserAvatarPinIcon() }).addTo(map).bindPopup("You are here");
+        else userMarker = L.marker(ll).addTo(map).bindPopup("You are here");
+    }
+
+    if (userAccuracyCircle) userAccuracyCircle.setLatLng(ll).setRadius(accuracy || 30);
+    else userAccuracyCircle = L.circle(ll, { radius: accuracy || 30 }).addTo(map);
+}
+
+window.addEventListener('message', function (evt) {
+    var data = evt && evt.data ? evt.data : null;
+    if (!data || data.type !== 'tourist-location-update') return;
+    updateTouristMapUserFromExternal(Number(data.lat), Number(data.lng), Number(data.accuracy || 30));
+});
+
+function applyUrlSearchFocus() {
+    try {
+        var params = new URLSearchParams(window.location.search || '');
+        var lat = parseFloat(params.get('focus_lat') || '');
+        var lng = parseFloat(params.get('focus_lng') || '');
+        var name = (params.get('focus_name') || 'Result').toString();
+        var type = (params.get('focus_type') || 'result').toString();
+        var focusPolygonId = parseInt(params.get('focus_polygon_id') || '0', 10);
+
+        if (type === 'event' && focusPolygonId > 0) {
+            setTimeout(function () { focusPolygonById(focusPolygonId); }, 300);
+            return;
+        }
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        var ll = L.latLng(lat, lng);
+        map.setView(ll, Math.max(map.getZoom() || 14, 17), { animate: true });
+
+        // Do not add a blue generic marker for search focus.
+        // We only center/zoom so existing stall/landmark pins remain the visible pin style.
+    } catch (e) {
+        console.error('search focus error:', e);
+    }
+}
+
 
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -123,8 +238,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var btn = document.getElementById('locateBtn');
     if (btn) {
-        btn.style.display = 'inline-block';
-        btn.addEventListener('click', locateUser);
+        btn.style.display = 'none';
     }
 });
 
@@ -307,10 +421,11 @@ function applyFilters(){
             // LGU "Landmarks Map" markers should not show on the tourist map tab
             if (marker.category === 'Landmark') return;
 
-            var iconUrl = marker.image ? 'uploads/'+marker.image : (marker.icon_type=='square'?'square_icon.png':'circle_icon.png');
+            // Do not use arbitrary uploaded image as the marker icon; stale DB filenames can 404.
+            var iconUrl = (marker.icon_type=='square'?'square_icon.png':'circle_icon.png');
             var icon = L.icon({iconUrl:iconUrl, iconSize:[30,30]});
             var popup = "<b>"+marker.name+"</b><br>"+marker.description+"<br>Category: "+marker.category;
-            if(marker.image) popup += "<br><img src='uploads/"+marker.image+"' width='100'>";
+            if(marker.image) popup += "<br><img src='uploads/"+marker.image+"' width='100' onerror=\"this.src='circle_icon.png'\">";
 
             var matchesSearch = (query === "" || marker.name.toLowerCase().includes(query) || marker.description.toLowerCase().includes(query));
             var matchesCategory = (checked.length === 0 || checked.includes(marker.category));
@@ -367,13 +482,89 @@ loadPolylines();
 function loadPolygons(){
     $.getJSON('php/get_polygons.php', function(data){
         drawnItems.eachLayer(function(l){ if(l instanceof L.Polygon && !(l instanceof L.Polyline)) drawnItems.removeLayer(l); });
+        polygonLayersById.clear();
+        polygonCentersById.clear();
+        polygonColorsById.clear();
         data.forEach(function(poly){
             var coords = poly.coordinates.map(c=>[c.lat, c.lng]);
-            L.polygon(coords,{color: poly.color || 'green'}).addTo(drawnItems);
+            var p = L.polygon(coords,{color: poly.color || 'green'}).addTo(drawnItems);
+            p.layerId = parseInt(poly.id || 0, 10) || null;
+            if (p.layerId) {
+                polygonLayersById.set(p.layerId, p);
+                polygonCentersById.set(p.layerId, p.getBounds().getCenter());
+                polygonColorsById.set(p.layerId, poly.color || 'green');
+            }
         });
+        loadEventCenterMarkers();
     });
 }
 loadPolygons();
+
+function focusPolygonById(polygonId) {
+    var pid = parseInt(polygonId || 0, 10);
+    if (!pid) return;
+    var layer = polygonLayersById.get(pid);
+    if (!layer) return;
+
+    try {
+        map.fitBounds(layer.getBounds(), { padding: [25, 25] });
+    } catch (e) {}
+
+    var original = {
+        color: layer.options.color || '#008000',
+        weight: layer.options.weight || 3,
+        fillOpacity: (typeof layer.options.fillOpacity === 'number') ? layer.options.fillOpacity : 0.2
+    };
+
+    function lightenColor(input, factor) {
+        var c = (input || '').toString().trim();
+        var r = 0, g = 128, b = 0;
+        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) {
+            if (c.length === 4) {
+                r = parseInt(c[1] + c[1], 16);
+                g = parseInt(c[2] + c[2], 16);
+                b = parseInt(c[3] + c[3], 16);
+            } else {
+                r = parseInt(c.slice(1, 3), 16);
+                g = parseInt(c.slice(3, 5), 16);
+                b = parseInt(c.slice(5, 7), 16);
+            }
+        } else {
+            var m = c.match(/rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/i);
+            if (m) {
+                r = parseInt(m[1], 10) || 0;
+                g = parseInt(m[2], 10) || 0;
+                b = parseInt(m[3], 10) || 0;
+            }
+        }
+        var f = Math.max(0, Math.min(1, factor));
+        var nr = Math.round(r + (255 - r) * f);
+        var ng = Math.round(g + (255 - g) * f);
+        var nb = Math.round(b + (255 - b) * f);
+        return 'rgb(' + nr + ',' + ng + ',' + nb + ')';
+    }
+    var glowColor = lightenColor(original.color, 0.35);
+
+    var on = false;
+    var elapsed = 0;
+    var total = 5000;
+    var step = 420; // slower blink
+    var timer = setInterval(function () {
+        elapsed += step;
+        on = !on;
+        if (on) {
+            layer.setStyle({ color: glowColor, weight: 8, fillOpacity: 0.42 });
+        } else {
+            layer.setStyle(original);
+        }
+        if (elapsed >= total) {
+            clearInterval(timer);
+            layer.setStyle(original);
+        }
+    }, step);
+}
+
+window.focusPolygonById = focusPolygonById;
 
 // ================================
 // STALL MARKER + POPUP + ANALYTICS
@@ -382,16 +573,16 @@ function createStallMarker(stall) {
     var latlng = L.latLng(stall.lat, stall.lng);
     var name   = stall.stall_name ? stall.stall_name : 'Occupied';
 
-    var imgSrc = stall.stall_image 
-        ? 'uploads/stalls/' + stall.stall_image 
-        : 'uploads/default_stall.png';
+    var imgSrc = stall.stall_image
+        ? 'uploads/stalls/' + stall.stall_image
+        : 'uploads/userPin.png';
 
     // Pin HTML (matches your CSS)
     var html =
         '<div class="stall-pin-wrapper">' +
           '<div class="stall-pin-label">' + name + '</div>' +
           '<div class="stall-pin">' +
-            '<img src="' + imgSrc + '" alt="' + name + '">' +
+            '<img src="' + imgSrc + '" alt="' + name + '" onerror="this.src=\'uploads/userPin.png\'">' +
           '</div>' +
           '<div class="stall-pin-shadow"></div>' +
         '</div>';
@@ -430,7 +621,7 @@ function openStallPopup(stallId, marker) {
         var ptype = s.product_type || '';
         var img   = s.stall_image
             ? 'uploads/stalls/' + s.stall_image
-            : 'uploads/default_stall.png';
+            : 'uploads/userPin.png';
 
         // These MUST be set in get_stall_details.php
         var stallRating   = parseInt(s.my_rating || 0, 10);
@@ -454,7 +645,7 @@ function openStallPopup(stallId, marker) {
         html += '</div>';
 
         // Stall image + type
-        html += '<div class="stall-popup-image"><img src="' + img + '" alt="' + name + '"></div>';
+        html += '<div class="stall-popup-image"><img src="' + img + '" alt="' + name + '" onerror="this.src=\'uploads/userPin.png\'"></div>';
 
         if (ptype) {
             html += '<div class="stall-popup-type">' + ptype + '</div>';
@@ -468,7 +659,7 @@ function openStallPopup(stallId, marker) {
             products.forEach(function (p) {
                 var pImg = p.image
                     ? 'uploads/products/' + p.image
-                    : 'uploads/default_product.png';
+                    : 'uploads/userPin.png';
 
                 var pRating   = parseInt(p.my_rating || 0, 10);
                 var pFavorite = !!p.is_favorite;
@@ -486,7 +677,7 @@ function openStallPopup(stallId, marker) {
                       'data-pfavorite="' + (pFavorite ? 1 : 0) + '"' +
                       '>' +
 
-                    '<img class="stall-popup-product-thumb" src="' + pImg + '" alt="' + (p.name || '') + '">' +
+                    '<img class="stall-popup-product-thumb" src="' + pImg + '" alt="' + (p.name || '') + '" onerror="this.src=\'uploads/userPin.png\'">' +
                     '<div class="stall-popup-product-text">' +
                       '<div class="stall-popup-product-name-row">' +
                         '<span class="stall-popup-product-name">' + (p.name || '') + '</span>' +
@@ -932,3 +1123,6 @@ function loadStalls() {
 
 loadStalls();
 setInterval(loadStalls, 15000); // keep if you still want auto-refresh
+
+// Run after initial layers are ready.
+setTimeout(applyUrlSearchFocus, 350);

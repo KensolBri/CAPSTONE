@@ -28,6 +28,24 @@ var eventPolygons = [];         // all event polygons (green areas); stall place
 var stallLayoutMode = false;    // true when LGU is in "Stall Layout" view
 var stallPlacementMode = false; // used by Add Stall button
 var stallMarkers = [];          // list of stall spot markers
+var pendingEventFormData = null;
+var pendingEventName = '';
+var isEventPolygonDrawMode = false;
+var lguEventFormMode = 'add'; // add | edit
+var eventCenterMarkersLayer = L.layerGroup().addTo(map);
+var manualMarkerPlacementMode = false;
+var lguEventsCache = [];
+var lguEventsCurrentPage = 1;
+var lguEventsPageSize = 10;
+var applicationsCache = [];
+var applicationCurrentPage = 1;
+var applicationPageSize = 5;
+
+function escapeAppHtml(str) {
+    return (str == null ? '' : String(str)).replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[c];
+    });
+}
 
 // Returns the first polygon that contains the given latlng, or null
 function getPolygonContaining(latlng) {
@@ -52,9 +70,9 @@ if (canEdit) {
     var drawControl = new L.Control.Draw({
         edit: { featureGroup: drawnItems },
         draw: {
-            marker: true,
+            marker: false,
             polyline: true,
-            polygon: true,
+            polygon: false,
             rectangle: false,
             circle: false,
             circlemarker: false
@@ -67,21 +85,16 @@ if (canEdit) {
         var layer = e.layer;
 
         if (type === 'marker') {
+            manualMarkerPlacementMode = false;
             tempMarker = layer;
             map.addLayer(tempMarker);
 
             showMarkerForm('Add Marker');
+            positionMarkerFormAtLatLng(layer.getLatLng());
+            $('#markerForm').css({ display: 'block' });
 
-            // calculate position relative to page
-            var containerPoint = map.latLngToContainerPoint(layer.getLatLng());
-            var mapOffset      = $('#map').offset();
-
-            $('#markerForm').css({
-                top:  mapOffset.top  + containerPoint.y + 'px',
-                left: mapOffset.left + containerPoint.x + 'px',
-                display: 'block'
-            });
-
+        } else if (type === 'polygon' && isEventPolygonDrawMode && pendingEventFormData) {
+            saveEventPolygonAndFinalize(layer);
         } else {
             showShapeForm(type, layer);
         }
@@ -157,24 +170,12 @@ function showMarkerForm(title, data=null){
         $('#markerName').val(data.name);
         $('#markerCategory').val(data.category);
         $('#markerDescription').val(data.description);
-        $('#markerIconType').val(data.icon_type);
-
-        // if markerType select exists, default to POI for existing markers
-        if ($('#markerType').length) {
-            $('#markerType').val('poi');
-        }
     } else {
         $('#markerId').val('');
         $('#markerName').val('');
         $('#markerCategory').val('Food');
         $('#markerDescription').val('');
-        $('#markerIconType').val('round');
         $('#markerImage').val('');
-
-        // default markerType to POI if present
-        if ($('#markerType').length) {
-            $('#markerType').val('poi');
-        }
     }
 
     $('#markerForm').show();
@@ -207,51 +208,13 @@ $('#deleteMarker').click(function(){
 // Save Marker (POI OR Stall)
 // ==========================
 $('#saveMarker').click(function(){
-    // read markerType safely (default: 'poi' if field not present)
-    var markerType = 'poi';
-    var markerTypeEl = document.getElementById('markerType');
-    if (markerTypeEl && markerTypeEl.value) {
-        markerType = markerTypeEl.value;
-    }
-
-    // 🔹 STALL mode: create stall marker instead of normal POI
-    if (markerType === 'stall') {
-        if (!tempMarker) {
-            alert("Place a marker on the map first.");
-            return;
-        }
-        if (!eventPolygons || eventPolygons.length === 0) {
-            alert("Draw and save an event polygon (event area) first.");
-            return;
-        }
-
-        var latlng = tempMarker.getLatLng();
-
-        // check stall is inside any event area
-        var containingPolygon = getPolygonContaining(latlng);
-        if (!containingPolygon) {
-            alert("Stall spaces must be inside an event area.");
-            return;
-        }
-
-        // create stall marker (label "Available")
-        createStallMarker(latlng, 'available');
-
-        // remove the temp Leaflet-draw marker
-        map.removeLayer(tempMarker);
-        tempMarker = null;
-
-        $('#markerForm').hide();
-        return; // IMPORTANT: don't continue to normal POI save
-    }
-
-    // 🔹 Normal POI / event marker logic
+    // Normal POI / event marker logic
     var formData = new FormData();
     formData.append('id', $('#markerId').val());
     formData.append('name', $('#markerName').val());
     formData.append('category', $('#markerCategory').val());
     formData.append('description', $('#markerDescription').val());
-    formData.append('icon_type', $('#markerIconType').val());
+    formData.append('icon_type', 'round');
     if ($('#markerImage')[0].files[0]) {
         formData.append('image', $('#markerImage')[0].files[0]);
     }
@@ -353,8 +316,7 @@ function applyFilters(){
             var iconUrl = marker.image
                 ? 'tourism/uploads/' + marker.image
                 : (marker.icon_type == 'square' ? 'square_icon.png' : 'circle_icon.png');
-
-            var icon = L.icon({iconUrl: iconUrl, iconSize:[30,30]});
+            var icon = buildPinIcon(iconUrl);
             var popup = "<b>" + marker.name + "</b><br>" +
                         marker.description + "<br>Category: " + marker.category;
             if (marker.image) {
@@ -379,6 +341,7 @@ function applyFilters(){
                     m.on('click', function(){
                         showMarkerForm('Edit Marker', marker);
                         tempMarker = m;
+                        positionMarkerFormAtLatLng(m.getLatLng());
                     });
                 }
                 markerCluster.addLayer(m);
@@ -435,15 +398,21 @@ function loadPolygons(){
             polygonLayer.layerId = poly.id;
             eventPolygons.push(polygonLayer);
         });
+        renderEventCenterMarkersFromExistingEvents();
     });
 }
 loadPolygons();
 
 function loadStalls() {
+    stallMarkers.forEach(function (m) {
+        if (m && drawnItems.hasLayer(m)) drawnItems.removeLayer(m);
+    });
+    stallMarkers = [];
+
     $.getJSON(phpFolder + '/get_stalls.php', function(data){
         data.forEach(function(stall){
             var latlng = L.latLng(stall.lat, stall.lng);
-            createStallMarker(latlng, stall.status, stall.id);
+            createStallMarker(latlng, stall.status, stall.id, stall);
         });
     });
 }
@@ -466,51 +435,358 @@ function pointInPolygon(latlng, polygon) {
     return inside;
 }
 
-// Create a stall marker (Available / Reserved / Occupied) with label style
-function createStallMarker(latlng, status, id) {
-    status = status || 'available';
+function setEventPolygonFlowVisible(visible) {
+    var box = document.getElementById('eventPolygonFlowBox');
+    if (!box) return;
+    box.style.display = visible ? 'block' : 'none';
+}
 
-    var labelText = status.charAt(0).toUpperCase() + status.slice(1);
+function setEventPolygonFlowText(text) {
+    var textEl = document.getElementById('eventPolygonFlowText');
+    if (!textEl) return;
+    textEl.textContent = text || '';
+}
 
-    // ✅ Explicit icon size + anchor at bottom-center
-    var icon = L.divIcon({
-        className: 'stall-label stall-' + status,
-        html: labelText,
-        iconSize: [80, 30],  // width, height in px
-        iconAnchor: [40, 30] // center bottom of the label
+function resetPendingEventFlow() {
+    pendingEventFormData = null;
+    pendingEventName = '';
+    isEventPolygonDrawMode = false;
+    setEventPolygonFlowVisible(false);
+}
+
+function getPolygonCenterFromCoords(coords) {
+    if (!coords || !coords.length) return null;
+    var bounds = L.latLngBounds(coords.map(function (c) { return [c.lat, c.lng]; }));
+    var center = bounds.getCenter();
+    return { lat: center.lat, lng: center.lng };
+}
+
+function positionMarkerFormAtLatLng(latlng) {
+    var formEl = document.getElementById('markerForm');
+    var mapEl = document.getElementById('map');
+    if (!formEl || !mapEl || !latlng || typeof map === 'undefined') return;
+
+    var point = map.latLngToContainerPoint(latlng);
+    var mapRect = mapEl.getBoundingClientRect();
+    var top = window.scrollY + mapRect.top + point.y - 20;
+    var left = window.scrollX + mapRect.left + point.x + 20;
+
+    formEl.style.top = Math.max(80, top) + 'px';
+    formEl.style.left = Math.max(12, left) + 'px';
+}
+
+function buildPinIcon(imageUrl) {
+    var innerHtml = imageUrl
+        ? '<span class="map-pin-image-wrap"><img src="' + imageUrl + '" class="map-pin-image" alt=""></span>'
+        : '<span class="map-pin-dot"></span>';
+    return L.divIcon({
+        className: 'map-pin-marker',
+        html: '<div class="map-pin-body">' + innerHtml + '</div>',
+        iconSize: [30, 42],
+        iconAnchor: [15, 40],
+        popupAnchor: [0, -36]
+    });
+}
+
+function buildEventPinIcon(imageUrl) {
+    var innerHtml = imageUrl
+        ? '<span class="map-pin-image-wrap"><img src="' + imageUrl + '" class="map-pin-image" alt=""></span>'
+        : '<span class="map-pin-dot"></span>';
+    return L.divIcon({
+        className: 'map-pin-marker map-pin-event-large',
+        html: '<div class="map-pin-body map-pin-body-large">' + innerHtml + '</div>',
+        iconSize: [53, 74],
+        iconAnchor: [26, 72],
+        popupAnchor: [0, -64]
+    });
+}
+
+function darkenHexColor(color, amount) {
+    var c = (color || '').toString().trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) return '#1e3a8a';
+    if (c.length === 4) {
+        c = '#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    }
+    var r = parseInt(c.substr(1, 2), 16);
+    var g = parseInt(c.substr(3, 2), 16);
+    var b = parseInt(c.substr(5, 2), 16);
+    var f = Math.max(0, Math.min(1, amount || 0.35));
+    r = Math.max(0, Math.round(r * (1 - f)));
+    g = Math.max(0, Math.round(g * (1 - f)));
+    b = Math.max(0, Math.round(b * (1 - f)));
+    return '#' + [r, g, b].map(function (x) { return x.toString(16).padStart(2, '0'); }).join('');
+}
+
+function buildEventPinIconWithBorder(imageUrl, polygonColor) {
+    var borderColor = darkenHexColor(polygonColor || '#2563eb', 0.38);
+    var innerHtml = imageUrl
+        ? '<span class="map-pin-image-wrap" style="border-color:' + borderColor + ';"><img src="' + imageUrl + '" class="map-pin-image" alt=""></span>'
+        : '<span class="map-pin-dot" style="background:' + borderColor + ';border-color:' + borderColor + ';"></span>';
+    return L.divIcon({
+        className: 'map-pin-marker map-pin-event-large',
+        html: '<div class="map-pin-body map-pin-body-large">' + innerHtml + '<span style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid ' + borderColor + ';"></span></div>',
+        iconSize: [53, 74],
+        iconAnchor: [26, 72],
+        popupAnchor: [0, -64]
+    });
+}
+
+function renderEventCenterMarkersFromExistingEvents() {
+    if (!eventCenterMarkersLayer) return;
+    eventCenterMarkersLayer.clearLayers();
+
+    $.getJSON(phpFolder + '/get_events.php', function (events) {
+        if (!events || !events.length) return;
+        events.forEach(function (ev) {
+            if (!ev.polygon_id) return;
+            var poly = eventPolygons.find(function (p) {
+                return String(p.layerId) === String(ev.polygon_id);
+            });
+            if (!poly) return;
+
+            var center = poly.getBounds().getCenter();
+            var icon = buildEventPinIconWithBorder(ev.event_image_display || '', (poly.options && poly.options.color) || '#2563eb');
+            var marker = L.marker(center, { icon: icon, zIndexOffset: 5000 });
+            marker.bindPopup('<b>' + escapeAppHtml(ev.event_name || 'Event') + '</b><br>' + escapeAppHtml(ev.location || ''));
+            eventCenterMarkersLayer.addLayer(marker);
+        });
+    });
+}
+
+function createEventMarkerAtCenter(eventRes, center) {
+    if (!eventRes || !center) return;
+
+    var markerFd = new FormData();
+    markerFd.append('name', eventRes.event_name || pendingEventName || 'Event');
+    markerFd.append('category', 'Events');
+    markerFd.append('description', eventRes.location || 'Event location');
+    markerFd.append('icon_type', 'round');
+    markerFd.append('lat', String(center.lat));
+    markerFd.append('lng', String(center.lng));
+
+    var imageFile = pendingEventFormData ? pendingEventFormData.get('event_image_display') : null;
+    if (imageFile instanceof File && imageFile.size > 0) {
+        markerFd.append('image', imageFile);
+    }
+
+    $.ajax({
+        url: phpFolder + '/save_marker.php',
+        method: 'POST',
+        data: markerFd,
+        processData: false,
+        contentType: false
+    }).always(function () {
+        applyFilters();
+    });
+}
+
+function saveEventPolygonAndFinalize(layer) {
+    if (!pendingEventFormData) return;
+
+    var eventName = pendingEventName || (pendingEventFormData.get('event_name') || 'Event');
+    var coords = layer.getLatLngs()[0].map(function (ll) {
+        return { lat: ll.lat, lng: ll.lng };
     });
 
+    setEventPolygonFlowText('Saving polygon for "' + eventName + '"...');
+    var colorInput = document.getElementById('eventPolygonColor');
+    var polygonColor = (colorInput && colorInput.value) ? colorInput.value : '#008000';
+    var polygonCenter = getPolygonCenterFromCoords(coords);
+
+    $.ajax({
+        url: phpFolder + '/save_polygon.php',
+        method: 'POST',
+        dataType: 'json',
+        data: {
+            name: eventName + ' Area',
+            description: 'Auto-generated event area for ' + eventName,
+            coordinates: JSON.stringify(coords),
+            color: polygonColor
+        }
+    }).done(function (polyRes) {
+        if (!polyRes || polyRes.status !== 'success' || !polyRes.id) {
+            setEventPolygonFlowText('Failed to save polygon. Please try again.');
+            if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+            isEventPolygonDrawMode = false;
+            return;
+        }
+
+        pendingEventFormData.set('polygon_id', String(polyRes.id));
+        setEventPolygonFlowText('Polygon saved. Creating event...');
+
+        $.ajax({
+            url: phpFolder + '/add_event.php',
+            method: 'POST',
+            data: pendingEventFormData,
+            processData: false,
+            contentType: false,
+            dataType: 'json'
+        }).done(function (eventRes) {
+            if (eventRes && eventRes.status === 'success') {
+                alert('Event created successfully and polygon attached.');
+                createEventMarkerAtCenter(eventRes, polygonCenter);
+                loadLguEventsList();
+                loadPolygons();
+                resetPendingEventFlow();
+            } else {
+                setEventPolygonFlowText((eventRes && eventRes.message) || 'Failed to create event after polygon save.');
+            }
+        }).fail(function () {
+            setEventPolygonFlowText('Server error while creating event.');
+        });
+    }).fail(function () {
+        setEventPolygonFlowText('Server error while saving event polygon.');
+        if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+        isEventPolygonDrawMode = false;
+    });
+}
+
+function buildStallStatusPinIcon(status, stallImage) {
+    var s = (status || 'available').toLowerCase();
+    var isOccupied = s === 'occupied';
+    var bodyClass = isOccupied ? 'occupied' : (s === 'reserved' ? 'reserved' : 'available');
+    var inner = isOccupied && stallImage
+        ? '<span class="lgu-stall-pin-image-wrap"><img src="tourism/uploads/stalls/' + encodeURIComponent(stallImage) + '" class="lgu-stall-pin-image" alt=""></span>'
+        : '<span class="lgu-stall-pin-dot"></span>';
+    return L.divIcon({
+        className: 'lgu-stall-pin-icon',
+        html: '<div class="lgu-stall-pin-body ' + bodyClass + '">' + inner + '</div>',
+        iconSize: [40, 54],
+        iconAnchor: [20, 52],
+        popupAnchor: [0, -46]
+    });
+}
+
+function openLguStallStatusModal(marker) {
+    if (!marker || !marker.stallId) return;
+    var modal = document.getElementById('stallStatusModal');
+    var title = document.getElementById('stallStatusModalTitle');
+    var body = document.getElementById('stallStatusModalBody');
+    if (!modal || !title || !body) return;
+
+    title.textContent = 'Stall #' + marker.stallId;
+    body.innerHTML = '<p style="font-size:12px;">Loading stall details...</p>';
+    modal.style.display = 'flex';
+    modal.classList.add('open');
+
+    if (marker.stallStatus !== 'occupied') {
+        body.innerHTML =
+            '<div class="lgu-stall-status-modal-row">' +
+                '<label>Status</label>' +
+                '<select id="stallStatusSelect">' +
+                    '<option value="available"' + (marker.stallStatus === 'available' ? ' selected' : '') + '>Available</option>' +
+                    '<option value="reserved"' + (marker.stallStatus === 'reserved' ? ' selected' : '') + '>Reserved</option>' +
+                    '<option value="occupied"' + (marker.stallStatus === 'occupied' ? ' selected' : '') + '>Occupied</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="lgu-stall-status-modal-actions">' +
+                '<button type="button" class="lgu-stall-status-btn" id="saveStallStatusBtn">Save Status</button>' +
+                '<button type="button" class="lgu-stall-status-btn danger" id="removeStallBtn">Remove Stall</button>' +
+            '</div>';
+
+        document.getElementById('saveStallStatusBtn').onclick = function () {
+            var nextStatus = (document.getElementById('stallStatusSelect') || {}).value || marker.stallStatus;
+            $.post(phpFolder + '/update_stall.php', { id: marker.stallId, status: nextStatus }, function (res) {
+                if (typeof res === 'string') {
+                    try { res = JSON.parse(res); } catch (e) { res = null; }
+                }
+                if (res && res.status === 'success') {
+                    updateLocalStallStatus(marker.stallId, nextStatus);
+                    modal.style.display = 'none';
+                } else {
+                    alert((res && res.message) || 'Failed to update stall.');
+                }
+            });
+        };
+        document.getElementById('removeStallBtn').onclick = function () {
+            if (!confirm('Remove this stall space?')) return;
+            $.post(phpFolder + '/delete_stall.php', { stall_id: marker.stallId }, function (res) {
+                if (typeof res === 'string') {
+                    try { res = JSON.parse(res); } catch (e) { res = null; }
+                }
+                if (res && res.status === 'success') {
+                    if (drawnItems.hasLayer(marker)) drawnItems.removeLayer(marker);
+                    stallMarkers = stallMarkers.filter(function (m) { return m !== marker; });
+                    modal.style.display = 'none';
+                } else {
+                    alert((res && res.message) || 'Failed to remove stall.');
+                }
+            });
+        };
+        return;
+    }
+
+    $.getJSON(phpFolder + '/get_stall_details.php', { stall_id: marker.stallId }, function (res) {
+        if (!res || res.status !== 'success') {
+            body.innerHTML = '<p style="font-size:12px;color:#b91c1c;">Failed to load occupied stall details.</p>';
+            return;
+        }
+        var stall = res.stall || {};
+        var products = res.products || [];
+        var productsHtml = products.length
+            ? '<ul class="lgu-occupied-products">' + products.map(function (p) { return '<li>' + escapeAppHtml(p.name || '') + '</li>'; }).join('') + '</ul>'
+            : '<p style="font-size:12px;color:#666;">No products attached.</p>';
+
+        body.innerHTML =
+            '<div class="lgu-occupied-stall-details">' +
+                '<div><b>Stall name:</b> ' + escapeAppHtml(stall.stall_name || '-') + '</div>' +
+                '<div><b>Vendor name:</b> ' + escapeAppHtml(stall.vendor_name || '-') + '</div>' +
+                '<div style="margin-top:8px;"><b>Products:</b></div>' +
+                productsHtml +
+            '</div>' +
+            '<div class="lgu-stall-status-modal-actions">' +
+                '<button type="button" class="lgu-stall-status-btn warn" id="releaseOccupiedStallBtn">Set Available</button>' +
+                '<button type="button" class="lgu-stall-status-btn danger" id="removeOccupiedStallBtn">Remove Stall</button>' +
+            '</div>';
+
+        document.getElementById('releaseOccupiedStallBtn').onclick = function () {
+            $.post(phpFolder + '/update_stall.php', { id: marker.stallId, status: 'available' }, function (upRes) {
+                if (typeof upRes === 'string') {
+                    try { upRes = JSON.parse(upRes); } catch (e) { upRes = null; }
+                }
+                if (!(upRes && upRes.status === 'success')) {
+                    alert((upRes && upRes.message) || 'Failed to release stall.');
+                    return;
+                }
+                var appId = stall.application_id || 0;
+                if (appId) {
+                    $.post(phpFolder + '/update_stall_application.php', { id: appId, status: 'cancelled' });
+                }
+                updateLocalStallStatus(marker.stallId, 'available');
+                modal.style.display = 'none';
+            });
+        };
+        document.getElementById('removeOccupiedStallBtn').onclick = function () {
+            if (!confirm('Remove this occupied stall and related records?')) return;
+            $.post(phpFolder + '/delete_stall.php', { stall_id: marker.stallId }, function (delRes) {
+                if (typeof delRes === 'string') {
+                    try { delRes = JSON.parse(delRes); } catch (e) { delRes = null; }
+                }
+                if (delRes && delRes.status === 'success') {
+                    if (drawnItems.hasLayer(marker)) drawnItems.removeLayer(marker);
+                    stallMarkers = stallMarkers.filter(function (m) { return m !== marker; });
+                    modal.style.display = 'none';
+                } else {
+                    alert((delRes && delRes.message) || 'Failed to remove stall.');
+                }
+            });
+        };
+    });
+}
+
+// Create a stall marker pin (Available / Reserved / Occupied)
+function createStallMarker(latlng, status, id, stallData) {
+    status = status || 'available';
+    stallData = stallData || {};
+    var icon = buildStallStatusPinIcon(status, stallData.stall_image || '');
     var m = L.marker(latlng, { icon: icon }).addTo(drawnItems);
     m.stallStatus = status;
-
-    if (id) {
-        m.stallId = id; // existing stall from DB
-    }
+    if (id) m.stallId = id;
+    m.stallMeta = stallData;
 
     m.on('click', function(e){
         L.DomEvent.stopPropagation(e);
-
-        var order = ['available', 'reserved', 'occupied'];
-        var idx = order.indexOf(m.stallStatus);
-        var nextStatus = order[(idx + 1) % order.length];
-
-        m.stallStatus = nextStatus;
-
-        var nextLabel = nextStatus.charAt(0).toUpperCase() + nextStatus.slice(1);
-        var newIcon = L.divIcon({
-            className: 'stall-label stall-' + nextStatus,
-            html: nextLabel,
-            iconSize: [80, 30],
-            iconAnchor: [40, 30]
-        });
-        m.setIcon(newIcon);
-
-        if (m.stallId) {
-            $.post(phpFolder + '/update_stall.php', {
-                id: m.stallId,
-                status: nextStatus
-            });
-        }
+        openLguStallStatusModal(m);
     });
 
     stallMarkers.push(m);
@@ -535,12 +811,11 @@ function updateLocalStallStatus(stallId, status) {
     stallMarkers.forEach(function (m) {
         if (m.stallId == stallId) {
             m.stallStatus = status;
-            var label = status.charAt(0).toUpperCase() + status.slice(1);
-            var newIcon = L.divIcon({
-                className: 'stall-label stall-' + status,
-                html: label,
-                iconAnchor: [0, 0]
-            });
+            if (status !== 'occupied') {
+                m.stallMeta = m.stallMeta || {};
+                m.stallMeta.stall_image = '';
+            }
+            var newIcon = buildStallStatusPinIcon(status, (m.stallMeta || {}).stall_image || '');
             m.setIcon(newIcon);
         }
     });
@@ -560,6 +835,10 @@ document.addEventListener("DOMContentLoaded", function () {
     var stallTitle      = document.getElementById("stallViewTitle");
     var appPanel        = document.getElementById("applicationListPanel");
     var festivalPanel   = document.getElementById("festivalSummaryPanel");
+    var mapContainerEl  = document.getElementById("mapContainer");
+    var filtersEl       = document.getElementById("filters");
+    var markerFormEl    = document.getElementById("markerForm");
+    var stallLayoutToolsEl = document.getElementById("stallLayoutTools");
 
     function showSection(id) {
         appContent.style.display = "none";
@@ -595,9 +874,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (stallLayoutMode) {
                     appPanel.style.display      = "none";
                     festivalPanel.style.display = "block";
+                    if (mapContainerEl) mapContainerEl.style.display = "block";
+                    if (filtersEl) filtersEl.style.display = "block";
+                    if (stallLayoutToolsEl) stallLayoutToolsEl.style.display = "flex";
                 } else {
                     appPanel.style.display      = "block";
                     festivalPanel.style.display = "none";
+                    if (mapContainerEl) mapContainerEl.style.display = "none";
+                    if (filtersEl) filtersEl.style.display = "none";
+                    if (stallLayoutToolsEl) stallLayoutToolsEl.style.display = "none";
+                    if (markerFormEl) markerFormEl.style.display = "none";
                 }
             }
 
@@ -626,7 +912,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // Load Event Details (polygons dropdown, events list)
             if (key === "placeholder-event") {
-                loadEventPolygonDropdown();
                 loadLguEventsList();
             }
 
@@ -693,8 +978,49 @@ document.addEventListener("DOMContentLoaded", function () {
     var addEventClose = document.getElementById("lguAddEventModalClose");
     var addEventCancel = document.getElementById("lguAddEventCancel");
     var addEventForm  = document.getElementById("lguAddEventForm");
+    var addEventModalTitle = document.getElementById("lguAddEventModalTitle");
+    var addEventSubmitBtn = document.getElementById("lguAddEventSubmitBtn");
+    var eventIdInput = document.getElementById("lguEventId");
+    var existingEventImageInput = document.getElementById("lguExistingEventImageDisplay");
+    var existingEventPlanInput = document.getElementById("lguExistingEventPlan");
+    var eventPolygonIdInput = document.getElementById("lguEventPolygonId");
+    var startEventPolygonBtn = document.getElementById('startEventPolygonBtn');
+    var cancelEventPolygonBtn = document.getElementById('cancelEventPolygonBtn');
+    var addMarkerBtn = document.getElementById('addMarkerBtn');
+    var stallStatusModal = document.getElementById('stallStatusModal');
+    var stallStatusModalClose = document.getElementById('stallStatusModalClose');
+
+    function setAddEventMode(mode, eventData) {
+        lguEventFormMode = mode === 'edit' ? 'edit' : 'add';
+        if (!addEventForm) return;
+
+        if (lguEventFormMode === 'add') {
+            addEventForm.reset();
+            if (eventIdInput) eventIdInput.value = '';
+            if (existingEventImageInput) existingEventImageInput.value = '';
+            if (existingEventPlanInput) existingEventPlanInput.value = '';
+            if (eventPolygonIdInput) eventPolygonIdInput.value = '';
+            if (addEventModalTitle) addEventModalTitle.textContent = 'Add Event';
+            if (addEventSubmitBtn) addEventSubmitBtn.textContent = 'Add Event';
+            return;
+        }
+
+        eventData = eventData || {};
+        if (addEventModalTitle) addEventModalTitle.textContent = 'Edit Event';
+        if (addEventSubmitBtn) addEventSubmitBtn.textContent = 'Save Changes';
+        if (eventIdInput) eventIdInput.value = eventData.id || '';
+        if (existingEventImageInput) existingEventImageInput.value = eventData.event_image_display || '';
+        if (existingEventPlanInput) existingEventPlanInput.value = eventData.event_plan || '';
+        if (eventPolygonIdInput) eventPolygonIdInput.value = eventData.polygon_id || '';
+
+        if (addEventForm.elements['event_name']) addEventForm.elements['event_name'].value = eventData.event_name || '';
+        if (addEventForm.elements['start_date']) addEventForm.elements['start_date'].value = eventData.start_date || '';
+        if (addEventForm.elements['end_date']) addEventForm.elements['end_date'].value = eventData.end_date || '';
+        if (addEventForm.elements['location']) addEventForm.elements['location'].value = eventData.location || '';
+    }
 
     function openAddEventModal() {
+        setAddEventMode('add');
         if (addEventModal) {
             addEventModal.style.display = "flex";
             addEventModal.classList.add("open");
@@ -705,43 +1031,212 @@ document.addEventListener("DOMContentLoaded", function () {
             addEventModal.style.display = "none";
             addEventModal.classList.remove("open");
         }
-        if (addEventForm) addEventForm.reset();
+        if (lguEventFormMode === 'add') {
+            if (addEventForm) addEventForm.reset();
+        }
     }
 
     if (addEventBtn) addEventBtn.addEventListener("click", openAddEventModal);
-    if (addEventClose) addEventClose.addEventListener("click", closeAddEventModal);
-    if (addEventCancel) addEventCancel.addEventListener("click", closeAddEventModal);
+    if (addEventClose) addEventClose.addEventListener("click", function () {
+        closeAddEventModal();
+        setAddEventMode('add');
+    });
+    if (addEventCancel) addEventCancel.addEventListener("click", function () {
+        closeAddEventModal();
+        setAddEventMode('add');
+    });
 
     if (addEventModal) {
         addEventModal.addEventListener("click", function (e) {
-            if (e.target === addEventModal) closeAddEventModal();
+            if (e.target === addEventModal) {
+                closeAddEventModal();
+                setAddEventMode('add');
+            }
         });
     }
+
+    document.addEventListener('click', function (e) {
+        var kebab = e.target.closest && e.target.closest('.lgu-event-kebab');
+        if (kebab) {
+            e.stopPropagation();
+            var menu = kebab.parentElement && kebab.parentElement.querySelector('.lgu-event-menu');
+            if (!menu) return;
+            document.querySelectorAll('.lgu-event-menu.open').forEach(function (m) {
+                if (m !== menu) m.classList.remove('open');
+            });
+            menu.classList.toggle('open');
+            return;
+        }
+
+        var editBtn = e.target.closest && e.target.closest('.lgu-event-menu-edit');
+        if (editBtn) {
+            e.stopPropagation();
+            var payload = editBtn.getAttribute('data-event');
+            if (!payload) return;
+            try {
+                var eventData = JSON.parse(decodeURIComponent(payload));
+                setAddEventMode('edit', eventData);
+                if (addEventModal) {
+                    addEventModal.style.display = 'flex';
+                    addEventModal.classList.add('open');
+                }
+            } catch (err) {
+                alert('Failed to open edit form.');
+            }
+            return;
+        }
+
+        var delBtn = e.target.closest && e.target.closest('.lgu-event-menu-delete');
+        if (delBtn) {
+            e.stopPropagation();
+            var eventId = delBtn.getAttribute('data-id');
+            if (!eventId) return;
+            if (!confirm('Delete this event?')) return;
+
+            $.post(phpFolder + '/delete_event.php', { id: eventId }, function (res) {
+                if (typeof res === 'string') {
+                    try { res = JSON.parse(res); } catch (err2) { res = null; }
+                }
+                if (res && res.status === 'success') {
+                    loadLguEventsList();
+                    loadPolygons();
+                    applyFilters();
+                } else {
+                    alert((res && res.message) || 'Failed to delete event.');
+                }
+            }).fail(function () {
+                alert('Server error while deleting event.');
+            });
+            return;
+        }
+
+        document.querySelectorAll('.lgu-event-menu.open').forEach(function (m) {
+            m.classList.remove('open');
+        });
+    });
+
+    document.addEventListener('click', function (e) {
+        var pageBtn = e.target.closest && e.target.closest('.lgu-events-page-btn');
+        if (!pageBtn || pageBtn.disabled) return;
+        var dir = pageBtn.getAttribute('data-page');
+        if (dir === 'prev') lguEventsCurrentPage -= 1;
+        if (dir === 'next') lguEventsCurrentPage += 1;
+        renderLguEventsTable();
+    });
 
     if (addEventForm) {
         addEventForm.addEventListener("submit", function (e) {
             e.preventDefault();
-            var fd = new FormData(addEventForm);
-            $.ajax({
-                url: phpFolder + "/add_event.php",
-                type: "POST",
-                data: fd,
-                processData: false,
-                contentType: false,
-                dataType: "json",
-                success: function (res) {
-                    if (res && res.status === "success") {
-                        alert(res.message || "Event added.");
+
+            if (lguEventFormMode === 'edit') {
+                var editFd = new FormData(addEventForm);
+                $.ajax({
+                    url: phpFolder + "/update_event.php",
+                    method: "POST",
+                    data: editFd,
+                    processData: false,
+                    contentType: false,
+                    dataType: "json"
+                }).done(function (res) {
+                    if (res && res.status === 'success') {
+                        alert(res.message || 'Event updated.');
                         closeAddEventModal();
+                        setAddEventMode('add');
                         loadLguEventsList();
                     } else {
-                        alert((res && res.message) || "Failed to add event.");
+                        alert((res && res.message) || 'Failed to update event.');
                     }
-                },
-                error: function () {
-                    alert("Failed to add event.");
+                }).fail(function () {
+                    alert('Server error while updating event.');
+                });
+                return;
+            }
+
+            if (pendingEventFormData) {
+                alert("Finish or cancel the current event setup first.");
+                return;
+            }
+
+            pendingEventFormData = new FormData(addEventForm);
+            pendingEventName = (pendingEventFormData.get('event_name') || 'Event').toString();
+
+            closeAddEventModal();
+            stallLayoutMode = true;
+            showSection("stall");
+            if (stallTitle) {
+                stallTitle.innerHTML = '<img src="map.png" alt="Map Icon" class="map-icon"/> Stall Layout';
+            }
+            if (appPanel && festivalPanel) {
+                appPanel.style.display = "none";
+                festivalPanel.style.display = "block";
+            }
+            if (mapContainerEl) mapContainerEl.style.display = "block";
+            if (filtersEl) filtersEl.style.display = "block";
+            if (stallLayoutToolsEl) stallLayoutToolsEl.style.display = "flex";
+
+            setEventPolygonFlowVisible(true);
+            setEventPolygonFlowText('Event "' + pendingEventName + '" is pending. Click "Create Event Polygon", draw one polygon on the map, and the event will be created automatically.');
+
+            setTimeout(function () {
+                if (typeof map !== "undefined" && map && map.invalidateSize) {
+                    map.invalidateSize();
                 }
-            });
+            }, 200);
+        });
+    }
+
+    if (startEventPolygonBtn) {
+        startEventPolygonBtn.addEventListener('click', function () {
+            if (!pendingEventFormData) {
+                alert('No pending event setup found.');
+                return;
+            }
+            if (isEventPolygonDrawMode) {
+                alert('Polygon drawing is already active. Draw the polygon on the map.');
+                return;
+            }
+            isEventPolygonDrawMode = true;
+            setEventPolygonFlowText('Draw the polygon now on the map for "' + pendingEventName + '".');
+            new L.Draw.Polygon(map).enable();
+        });
+    }
+
+    if (addMarkerBtn) {
+        addMarkerBtn.addEventListener('click', function () {
+            if (!canEdit) {
+                alert('Only LGU can add markers.');
+                return;
+            }
+            if (!stallLayoutMode) {
+                alert('Open Stall Layout first.');
+                return;
+            }
+            manualMarkerPlacementMode = true;
+            new L.Draw.Marker(map).enable();
+        });
+    }
+
+    if (cancelEventPolygonBtn) {
+        cancelEventPolygonBtn.addEventListener('click', function () {
+            if (!pendingEventFormData) {
+                setEventPolygonFlowVisible(false);
+                return;
+            }
+            if (!confirm('Cancel this pending event setup?')) return;
+            resetPendingEventFlow();
+        });
+    }
+
+    if (stallStatusModalClose && stallStatusModal) {
+        stallStatusModalClose.addEventListener('click', function () {
+            stallStatusModal.style.display = 'none';
+            stallStatusModal.classList.remove('open');
+        });
+        stallStatusModal.addEventListener('click', function (e) {
+            if (e.target === stallStatusModal) {
+                stallStatusModal.style.display = 'none';
+                stallStatusModal.classList.remove('open');
+            }
         });
     }
 
@@ -981,21 +1476,72 @@ function loadLguEventAnalytics() {
 
 function loadLguEventsList() {
     var el = document.getElementById("lguEventsList");
+    var pagination = document.getElementById("lguEventsPagination");
     if (!el) return;
     $.getJSON(phpFolder + "/get_events.php", function (data) {
-        if (!data || data.length === 0) {
+        lguEventsCache = data || [];
+        renderLguEventsTable();
+    }).fail(function () {
+        el.innerHTML = "<p class=\"lgu-events-empty\">Could not load events. Ensure the events table exists (run SQL/events.sql).</p>";
+        if (pagination) pagination.innerHTML = "";
+    });
+}
+
+function renderLguEventsTable() {
+    var el = document.getElementById("lguEventsList");
+    var pagination = document.getElementById("lguEventsPagination");
+    if (!el) return;
+
+    var data = lguEventsCache || [];
+    if (!data.length) {
             el.innerHTML = "<p class=\"lgu-events-empty\">No events yet. Click Add Event to create one.</p>";
+            if (pagination) pagination.innerHTML = "";
             return;
         }
-        var html = "<div class=\"lgu-events-table-wrap\"><table class=\"lgu-events-table\"><thead><tr><th>Event</th><th>Start</th><th>End</th><th>Location</th></tr></thead><tbody>";
-        data.forEach(function (ev) {
-            html += "<tr><td>" + (ev.event_name || "") + "</td><td>" + (ev.start_date || "") + "</td><td>" + (ev.end_date || "") + "</td><td>" + (ev.location || "") + "</td></tr>";
+
+    var totalPages = Math.max(1, Math.ceil(data.length / lguEventsPageSize));
+    if (lguEventsCurrentPage > totalPages) lguEventsCurrentPage = totalPages;
+    if (lguEventsCurrentPage < 1) lguEventsCurrentPage = 1;
+    var start = (lguEventsCurrentPage - 1) * lguEventsPageSize;
+    var pageRows = data.slice(start, start + lguEventsPageSize);
+
+    var html = "<div class=\"lgu-events-table-wrap\"><table class=\"lgu-events-table\"><thead><tr><th>Event</th><th>Start</th><th>End</th><th>Location</th><th>Action</th></tr></thead><tbody>";
+        pageRows.forEach(function (ev) {
+            var payload = encodeURIComponent(JSON.stringify({
+                id: ev.id || '',
+                event_name: ev.event_name || '',
+                start_date: ev.start_date || '',
+                end_date: ev.end_date || '',
+                location: ev.location || '',
+                event_image_display: ev.event_image_display || '',
+                event_plan: ev.event_plan || '',
+                polygon_id: ev.polygon_id || ''
+            }));
+            html += "<tr>" +
+                "<td>" + escapeAppHtml(ev.event_name || "") + "</td>" +
+                "<td>" + escapeAppHtml(ev.start_date || "") + "</td>" +
+                "<td>" + escapeAppHtml(ev.end_date || "") + "</td>" +
+                "<td>" + escapeAppHtml(ev.location || "") + "</td>" +
+                "<td class=\"lgu-event-actions-cell\">" +
+                    "<button type=\"button\" class=\"lgu-event-kebab\" aria-label=\"Event actions\">&#8942;</button>" +
+                    "<div class=\"lgu-event-menu\">" +
+                        "<button type=\"button\" class=\"lgu-event-menu-edit\" data-event=\"" + payload + "\">Edit</button>" +
+                        "<button type=\"button\" class=\"lgu-event-menu-delete\" data-id=\"" + (ev.id || '') + "\">Delete</button>" +
+                    "</div>" +
+                "</td>" +
+            "</tr>";
         });
         html += "</tbody></table></div>";
         el.innerHTML = html;
-    }).fail(function () {
-        el.innerHTML = "<p class=\"lgu-events-empty\">Could not load events. Ensure the events table exists (run SQL/events.sql).</p>";
-    });
+
+    if (pagination) {
+        var prevDisabled = lguEventsCurrentPage <= 1 ? 'disabled' : '';
+        var nextDisabled = lguEventsCurrentPage >= totalPages ? 'disabled' : '';
+        pagination.innerHTML =
+            '<button class="lgu-events-page-btn" data-page="prev" ' + prevDisabled + '>Prev</button>' +
+            '<span class="lgu-events-page-label">Page ' + lguEventsCurrentPage + ' of ' + totalPages + '</span>' +
+            '<button class="lgu-events-page-btn" data-page="next" ' + nextDisabled + '>Next</button>';
+    }
 }
 
 // Stall "Add Stall Space" button (existing behavior)
@@ -1026,6 +1572,24 @@ window.addEventListener("resize", function () {
 // Stall Applications List (LGU)
 // ==========================
 
+function getFilteredApplications() {
+    var searchVal = ($('#applicationSearchInput').val() || '').toLowerCase().trim();
+    var statusVal = ($('#applicationStatusFilter').val() || '').toLowerCase().trim();
+    return applicationsCache.filter(function (app) {
+        var vendorName = (app.vendor_name || '').toLowerCase();
+        var stallName = (app.stall_name || '').toLowerCase();
+        var productType = (app.product_type || '').toLowerCase();
+        var appStatus = (app.status || '').toLowerCase();
+
+        var matchesSearch = !searchVal ||
+            vendorName.includes(searchVal) ||
+            stallName.includes(searchVal) ||
+            productType.includes(searchVal);
+        var matchesStatus = !statusVal || appStatus === statusVal;
+        return matchesSearch && matchesStatus;
+    });
+}
+
 function buildApplicationRow(app) {
     function statusPill(status) {
         var classMap = {
@@ -1054,16 +1618,52 @@ function buildApplicationRow(app) {
 
     return (
         '<tr data-app-id="' + app.id + '" data-stall-id="' + app.stall_id + '">' +
-            '<td>' + (app.vendor_name    || '') + '</td>' +
-            '<td>' + (app.stall_name     || '') + '</td>' +
-            '<td>' + (app.applied_at     || '') + '</td>' +
-            '<td>' + (app.product_type   || '') + '</td>' +
-            '<td>' + (app.stall_size     || '') + '</td>' +
-            '<td><img src="tourism/uploads/stalls/' + (app.stall_image || 'noimg.png') + '" width="60"></td>' +
+            '<td>' + escapeAppHtml(app.vendor_name || '') + '</td>' +
+            '<td>' + escapeAppHtml(app.stall_name || '') + '</td>' +
+            '<td>' + escapeAppHtml(app.applied_at || '') + '</td>' +
+            '<td>' + escapeAppHtml(app.product_type || '') + '</td>' +
+            '<td>' + escapeAppHtml(app.stall_size || '') + '</td>' +
+            '<td><img src="tourism/uploads/stalls/' + encodeURIComponent(app.stall_image || '') + '" width="60" onerror="this.src=\'tourism/uploads/userPin.png\'"></td>' +
             '<td>' + statusPill(app.status) + '</td>' +
             '<td>' + actionsHtml + '</td>' +
         '</tr>'
     );
+}
+
+function renderApplicationsTable() {
+    var tbody = $('#applicationTable tbody');
+    var pagination = $('#applicationPagination');
+    if (!tbody.length) return;
+
+    var filtered = getFilteredApplications();
+    var total = filtered.length;
+    var totalPages = Math.max(1, Math.ceil(total / applicationPageSize));
+
+    if (applicationCurrentPage > totalPages) applicationCurrentPage = totalPages;
+    if (applicationCurrentPage < 1) applicationCurrentPage = 1;
+
+    tbody.empty();
+    if (!total) {
+        tbody.append('<tr><td colspan="8">No stall applications match your filter.</td></tr>');
+        if (pagination.length) pagination.html('');
+        return;
+    }
+
+    var start = (applicationCurrentPage - 1) * applicationPageSize;
+    var rows = filtered.slice(start, start + applicationPageSize);
+    rows.forEach(function (app) {
+        tbody.append(buildApplicationRow(app));
+    });
+
+    if (pagination.length) {
+        var prevDisabled = applicationCurrentPage <= 1 ? 'disabled' : '';
+        var nextDisabled = applicationCurrentPage >= totalPages ? 'disabled' : '';
+        pagination.html(
+            '<button class="application-page-btn" data-page="prev" ' + prevDisabled + '>Prev</button>' +
+            '<span class="application-page-label">Page ' + applicationCurrentPage + ' of ' + totalPages + '</span>' +
+            '<button class="application-page-btn" data-page="next" ' + nextDisabled + '>Next</button>'
+        );
+    }
 }
 
 // Load per-application list (Stall Applications mode)
@@ -1080,17 +1680,9 @@ function loadApplications() {
             return;
         }
 
-        var rows = res.data || [];
-        tbody.empty();
-
-        if (!rows.length) {
-            tbody.append('<tr><td colspan="8">No stall applications yet.</td></tr>');
-            return;
-        }
-
-        rows.forEach(function (app) {
-            tbody.append(buildApplicationRow(app));
-        });
+        applicationsCache = res.data || [];
+        applicationCurrentPage = 1;
+        renderApplicationsTable();
     }).fail(function () {
         tbody.empty();
         tbody.append(
@@ -1179,6 +1771,24 @@ $(document).on('click', '.app-delete', function () {
         return;
     }
     deleteApplication(appId);
+});
+
+$(document).on('input', '#applicationSearchInput', function () {
+    applicationCurrentPage = 1;
+    renderApplicationsTable();
+});
+
+$(document).on('change', '#applicationStatusFilter', function () {
+    applicationCurrentPage = 1;
+    renderApplicationsTable();
+});
+
+$(document).on('click', '.application-page-btn', function () {
+    if ($(this).is(':disabled')) return;
+    var dir = $(this).data('page');
+    if (dir === 'prev') applicationCurrentPage -= 1;
+    if (dir === 'next') applicationCurrentPage += 1;
+    renderApplicationsTable();
 });
 
 // ==========================
@@ -1297,10 +1907,10 @@ function openFestivalStallsModal(festivalName, stallIds) {
             var type       = s.product_type || '';
             var img        = s.stall_image
                 ? 'tourism/uploads/stalls/' + s.stall_image
-                : 'tourism/uploads/default_stall.png';
+                : 'tourism/uploads/userPin.png';
 
             html += '<div class="lgu-stall-card">';
-            html +=   '<div class="lgu-stall-avatar"><img src="' + img + '" alt="' + stallName + '"></div>';
+            html +=   '<div class="lgu-stall-avatar"><img src="' + img + '" alt="' + stallName + '" onerror="this.src=\'tourism/uploads/userPin.png\'"></div>';
             html +=   '<div class="lgu-stall-main">';
             html +=     '<div class="lgu-stall-header">';
             html +=       '<div class="lgu-stall-names">';
@@ -1322,10 +1932,10 @@ function openFestivalStallsModal(festivalName, stallIds) {
                 prods.forEach(function (p) {
                     var pImg = p.image
                         ? 'tourism/uploads/products/' + p.image
-                        : 'tourism/uploads/default_product.png';
+                        : 'tourism/uploads/userPin.png';
 
                     html += '<li>' +
-                              '<span class="lgu-product-avatar"><img src="' + pImg + '" alt="' + (p.name || '') + '"></span>' +
+                              '<span class="lgu-product-avatar"><img src="' + pImg + '" alt="' + (p.name || '') + '" onerror="this.src=\'tourism/uploads/userPin.png\'"></span>' +
                               '<span><strong>' + (p.name || '') + '</strong>';
                     if (p.price) {
                         html += ' — ₱ ' + parseFloat(p.price).toFixed(2);

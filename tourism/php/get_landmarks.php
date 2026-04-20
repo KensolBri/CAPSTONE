@@ -1,15 +1,25 @@
 <?php
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
 include '../db.php';
 
 header('Content-Type: application/json');
 
-$result = $conn->query("SELECT * FROM markers WHERE category='Landmark' ORDER BY id DESC");
+// Return rows even if category values have extra spaces/case differences.
+$result = $conn->query("SELECT * FROM markers WHERE TRIM(LOWER(category))='landmark' ORDER BY id DESC");
 $landmarks = [];
 
-while ($row = $result->fetch_assoc()) {
-    $landmarks[] = $row;
+if ($result) {
+    while ($row = $result->fetch_assoc()) {
+        $landmarks[] = $row;
+    }
 }
 
-echo json_encode($landmarks);
+$json = json_encode($landmarks, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+if ($json === false) {
+    echo '[]';
+    exit;
+}
+echo $json;
 ?>
 

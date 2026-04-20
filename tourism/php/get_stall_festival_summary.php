@@ -8,7 +8,8 @@ require '../db.php';
 
 header('Content-Type: application/json');
 
-if (($_SESSION['account_type'] ?? '') !== 'lgu') {
+$accountType = strtolower((string)($_SESSION['account_type'] ?? ''));
+if ($accountType !== 'lgu') {
     http_response_code(403);
     echo json_encode(['status' => 'error', 'message' => 'LGU only']);
     exit;

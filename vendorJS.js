@@ -23,9 +23,69 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 var drawnItems    = new L.FeatureGroup().addTo(map);
 var markerCluster = new L.MarkerClusterGroup().addTo(map);
 map.addLayer(markerCluster);
+var polygonCentersById = new Map();
+var polygonColorsById = new Map();
+var eventCenterLayer = L.layerGroup().addTo(map);
 
 var tempMarker = null;
 var cityBoundaryBounds = null;
+
+function buildEventCenterPinIcon(imageUrl) {
+    var safeImage = (imageUrl || '').toString().replace(/"/g, '&quot;');
+    var borderColor = '#1e3a8a';
+    if (arguments.length > 1) {
+        borderColor = darkenHexColor(arguments[1], 0.38);
+    }
+    var inner = safeImage
+        ? '<span style="width:42px;height:42px;border-radius:50%;overflow:hidden;border:2px solid ' + borderColor + ';box-shadow:0 2px 6px rgba(0,0,0,.22);display:inline-flex;"><img src="' + safeImage + '" style="width:100%;height:100%;object-fit:cover"></span>'
+        : '<span style="width:42px;height:42px;border-radius:50%;background:' + borderColor + ';border:2px solid ' + borderColor + ';box-shadow:0 2px 6px rgba(0,0,0,.22);display:inline-flex;"></span>';
+    var html = '<div style="position:relative;width:53px;height:74px;display:flex;align-items:flex-start;justify-content:center;">' +
+        inner +
+        '<span style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:20px solid ' + borderColor + ';"></span>' +
+        '</div>';
+    return L.divIcon({
+        className: 'event-center-pin-icon',
+        html: html,
+        iconSize: [53, 74],
+        iconAnchor: [26, 72],
+        popupAnchor: [0, -64]
+    });
+}
+
+function darkenHexColor(color, amount) {
+    var c = (color || '').toString().trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) return '#1e3a8a';
+    if (c.length === 4) c = '#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    var r = parseInt(c.substr(1, 2), 16);
+    var g = parseInt(c.substr(3, 2), 16);
+    var b = parseInt(c.substr(5, 2), 16);
+    var f = Math.max(0, Math.min(1, amount || 0.38));
+    r = Math.max(0, Math.round(r * (1 - f)));
+    g = Math.max(0, Math.round(g * (1 - f)));
+    b = Math.max(0, Math.round(b * (1 - f)));
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function loadEventCenterMarkers() {
+    if (!eventCenterLayer) return;
+    eventCenterLayer.clearLayers();
+
+    $.getJSON(phpFolder + '/get_events.php', function (events) {
+        (events || []).forEach(function (ev) {
+            var pid = parseInt(ev.polygon_id || 0, 10);
+            if (!pid) return;
+            var center = polygonCentersById.get(pid);
+            if (!center) return;
+            var polyColor = polygonColorsById.get(pid) || '#2563eb';
+
+            var marker = L.marker(center, {
+                icon: buildEventCenterPinIcon(ev.event_image_display || '', polyColor),
+                zIndexOffset: 5000
+            }).bindPopup('<b>' + (ev.event_name || 'Event') + '</b><br>' + (ev.location || ''));
+            eventCenterLayer.addLayer(marker);
+        });
+    });
+}
 
 // Stall application modal elements
 var stallApplyModal  = document.getElementById('stallApplyModal');
@@ -181,11 +241,19 @@ function loadPolygons(){
                 drawnItems.removeLayer(l);
             }
         });
+        polygonCentersById.clear();
+        polygonColorsById.clear();
 
         data.forEach(function(poly){
             var coords = poly.coordinates.map(c => [c.lat, c.lng]);
-            L.polygon(coords, {color: poly.color || 'green'}).addTo(drawnItems);
+            var layer = L.polygon(coords, {color: poly.color || 'green'}).addTo(drawnItems);
+            var pid = parseInt(poly.id || 0, 10);
+            if (pid) {
+                polygonCentersById.set(pid, layer.getBounds().getCenter());
+                polygonColorsById.set(pid, poly.color || 'green');
+            }
         });
+        loadEventCenterMarkers();
     });
 }
 

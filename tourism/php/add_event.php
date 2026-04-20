@@ -66,6 +66,8 @@ if ($stmt->execute()) {
         'status'   => 'success',
         'message'  => 'Event added successfully.',
         'event_id' => $conn->insert_id,
+        'event_name' => $eventName,
+        'location' => $location
     ]);
 } else {
     echo json_encode(['status' => 'error', 'message' => 'Failed to add event. ' . $conn->error]);

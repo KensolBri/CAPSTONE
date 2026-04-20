@@ -28,7 +28,13 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#0d6efd" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="CAPSTONE" />
   <title>Main Page</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="Lokal.png" />
   <link rel="stylesheet" href="MainStyle.css?v=14" />
   <link rel="stylesheet" href="eventCardsShared.css?v=5" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -174,11 +180,12 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
       <button class="back-btn">⬅ Back</button>
     </div>
     <div class="map-container">
-      <iframe 
-        src="tourism/map.php" 
-        allowfullscreen 
-        loading="lazy" 
-        referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <iframe
+  src="tourism/map.php"
+  allow="geolocation; fullscreen"
+  allowfullscreen
+  loading="lazy"
+  referrerpolicy="no-referrer-when-downgrade"></iframe>
     </div>
 
     <div class="map-links">
@@ -438,10 +445,11 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
   <!-- Stall Detail Modal -->
   <div id="stallDetailModal" class="stall-detail-modal" aria-hidden="true">
     <div class="stall-detail-modal-content">
+      <button type="button" id="stallDetailViewOnMapBtn" class="stall-detail-modal-close" aria-label="View stall on map" style="right:52px;font-size:12px;padding:6px 10px;border-radius:10px;line-height:1.2;">View Stall on Map</button>
       <button type="button" id="stallDetailModalClose" class="stall-detail-modal-close" aria-label="Close">&times;</button>
 
       <div class="stall-detail-header">
-        <img id="stallDetailImage" src="tourism/uploads/stalls/noimg.png" alt="Stall" />
+        <img id="stallDetailImage" src="tourism/uploads/userPin.png" alt="Stall" />
         <div class="stall-detail-meta">
           <h3 id="stallDetailName">Stall</h3>
           <div class="stall-detail-rating" id="stallDetailRating"></div>
@@ -456,12 +464,13 @@ $profilePicture  = $_SESSION['profile_picture'] ?? '';
 
   <!-- Stall Detail Sheet fallback (if modal is not visible) -->
   <div id="stallDetailSheet" class="slide-panel-bottom" aria-hidden="true">
+    <button type="button" id="stallDetailSheetViewOnMapBtn" class="close-panel-bottom" aria-label="View stall on map" style="right:52px;font-size:12px;padding:6px 10px;border-radius:10px;line-height:1.2;">View Stall on Map</button>
     <button type="button" id="stallDetailSheetClose" class="close-panel-bottom" aria-label="Close">&times;</button>
     <div class="icon-header" style="margin-bottom:12px;">
       <h2 style="font-size:18px;margin:0;">Stall Details</h2>
     </div>
     <div style="display:flex; gap:12px; align-items:flex-start;">
-      <img id="stallSheetImage" src="tourism/uploads/stalls/noimg.png" alt="Stall" style="width:88px;height:88px;border-radius:14px;object-fit:cover;"/>
+      <img id="stallSheetImage" src="tourism/uploads/userPin.png" alt="Stall" style="width:88px;height:88px;border-radius:14px;object-fit:cover;"/>
       <div style="flex:1;">
         <div id="stallSheetName" style="font-weight:950;font-size:16px;margin-bottom:6px;">Stall</div>
         <div id="stallSheetRating" style="font-weight:900;font-size:13px;margin-bottom:4px;color:#111;"></div>
@@ -629,6 +638,17 @@ document.addEventListener("DOMContentLoaded", function() {
   <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function (err) {
+          console.warn("Service worker registration failed:", err);
+        });
+      });
+    }
+  </script>
+
   <script src="Main.js?v=15"></script>
+  <script src="searchShared.js?v=1"></script>
 </body>
 </html>

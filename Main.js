@@ -77,6 +77,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (key === "location") {
         initTouristLocationTab();
       }
+      if (key === "map" && touristUserCoords) {
+        // Re-send user location when Map tab is opened so iframe always receives it.
+        setTimeout(() => {
+          pushLocationToMapTab(touristUserCoords.lat, touristUserCoords.lng, 30);
+        }, 250);
+      }
     });
   });
 
@@ -413,12 +419,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Stalls Near You location gate + modal controls
   const stallsLocationBtn = document.getElementById("stallsLocationBtn");
-  if (stallsLocationBtn) {
-    stallsLocationBtn.addEventListener("click", () => initStallsNearYou());
+  if (stallsLocationBtn) stallsLocationBtn.style.display = "none";
+  const touristLocationBtn = document.getElementById("touristLocationBtn");
+  if (touristLocationBtn) {
+    touristLocationBtn.style.display = "inline-flex";
+    touristLocationBtn.addEventListener("click", () => {
+      locateTouristForLocationTab();
+    });
   }
 
   const stallDetailModal = document.getElementById("stallDetailModal");
   const stallDetailClose = document.getElementById("stallDetailModalClose");
+  const stallDetailViewOnMapBtn = document.getElementById("stallDetailViewOnMapBtn");
   if (stallDetailClose) {
     stallDetailClose.addEventListener("click", () => {
       if (!stallDetailModal) return;
@@ -438,6 +450,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Sheet close
   const stallDetailSheet = document.getElementById("stallDetailSheet");
   const stallDetailSheetClose = document.getElementById("stallDetailSheetClose");
+  const stallDetailSheetViewOnMapBtn = document.getElementById("stallDetailSheetViewOnMapBtn");
   if (stallDetailSheetClose && stallDetailSheet) {
     stallDetailSheetClose.addEventListener("click", () => {
       closeStallDetailSheet();
@@ -459,6 +472,21 @@ document.addEventListener("DOMContentLoaded", () => {
       closeStallDetailSheet();
     }
   });
+
+  if (stallDetailViewOnMapBtn) {
+    stallDetailViewOnMapBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      viewCurrentStallOnMap();
+    });
+  }
+  if (stallDetailSheetViewOnMapBtn) {
+    stallDetailSheetViewOnMapBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      viewCurrentStallOnMap();
+    });
+  }
 
   // Festivities event detail modal
   const eventDetailModal = document.getElementById("eventDetailModal");
@@ -499,6 +527,21 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  // One-time location prompt right after welcome popup is dismissed.
+  const welcomePopup = document.getElementById("welcomePopup");
+  const promptAfterWelcome = () => {
+    setTimeout(() => {
+      if (!touristSharedLocationPrompted) {
+        showTouristLocationPromptCard();
+      }
+    }, 120);
+  };
+  if (welcomePopup) {
+    welcomePopup.addEventListener("click", promptAfterWelcome, { once: true });
+  } else {
+    promptAfterWelcome();
+  }
 });
 
 // ================================
@@ -522,6 +565,11 @@ let touristRouteMode = "car"; // car | foot (auto-switch)
 let touristLastRouteUpdateAt = 0;
 let touristLastPosSample = null; // {lat,lng,ts}
 let touristLastMileLine = null;
+let touristSharedLocationPrompted = false;
+let touristSharedLocationEnabled = false;
+let touristCurrentStallId = null;
+let touristCurrentStallLatLng = null;
+let touristLocationPromptCard = null;
 
 function escapeHtml(str) {
   return (str ?? "").toString().replace(/[&<>"']/g, (c) => {
@@ -902,11 +950,16 @@ function loadTouristLocationLandmarks() {
   touristLocationMarkerById.clear();
 
   fetch('tourism/php/get_landmarks.php', { credentials: "same-origin" })
-    .then((r) => r.json())
+    .then(async (r) => {
+      if (!r.ok) throw new Error("Failed to load landmarks");
+      const txt = await r.text();
+      try { return JSON.parse(txt); } catch (_) { return []; }
+    })
     .then((data) => {
       const list = Array.isArray(data) ? data : [];
       list.forEach((lm) => {
-        if (!lm || String(lm.category || '') !== 'Landmark') return;
+        const category = String((lm && lm.category) || '').trim().toLowerCase();
+        if (!lm || category !== 'landmark') return;
         const id = Number(lm.id || 0);
         const lat = Number(lm.lat);
         const lng = Number(lm.lng);
@@ -950,29 +1003,150 @@ function updateTouristUserMarker(latlng, accuracy) {
   }
 }
 
-function locateTouristForLocationTab() {
+function pushLocationToMapTab(lat, lng, accuracy) {
+  const frame = document.querySelector('iframe[src*="tourism/map.php"]');
+  if (!frame) return;
+
+  const payload = {
+    type: "tourist-location-update",
+    lat: Number(lat),
+    lng: Number(lng),
+    accuracy: Number(accuracy || 30)
+  };
+
+  const send = () => {
+    if (!frame.contentWindow) return;
+    frame.contentWindow.postMessage(payload, "*");
+  };
+
+  send();
+  // If iframe was not ready yet when first sent, send again after load.
+  frame.addEventListener("load", send, { once: true });
+}
+
+function requestTouristSharedLocation(hintText) {
+  touristSharedLocationPrompted = true;
   const hint = document.getElementById('touristLocationHint');
+  if (hintText && hint) hint.textContent = hintText;
   if (!navigator.geolocation) {
     if (hint) hint.textContent = "Location is not supported by your browser.";
-    return;
+    return Promise.reject(new Error("Geolocation not supported"));
   }
-
   if (hint) hint.textContent = "Getting your location...";
-
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
+  return new Promise((resolve, reject) => {
+    const onSuccess = async (pos) => {
+      touristSharedLocationEnabled = true;
       touristUserCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       const latlng = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
-      updateTouristUserMarker(latlng, pos.coords.accuracy);
-      touristLocationMap.setView(latlng, Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+      if (touristLocationMap) {
+        updateTouristUserMarker(latlng, pos.coords.accuracy);
+      }
+      pushLocationToMapTab(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+
+      try {
+        await loadAndRenderStalls(touristUserCoords);
+        const gate = document.getElementById("stallsLocationGate");
+        const contentWrap = document.getElementById("stallsContent");
+        const loadingEl = document.getElementById("stallsLoading");
+        if (gate) gate.classList.add("hidden");
+        if (loadingEl) loadingEl.classList.add("hidden");
+        if (contentWrap) contentWrap.classList.remove("hidden");
+      } catch (e) {}
+
       if (hint) hint.textContent = "Showing distances from your current location.";
       renderTouristLocationCards();
-    },
-    () => {
-      if (hint) hint.textContent = "Please allow location access to see distances.";
-    },
-    { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
-  );
+      resolve(touristUserCoords);
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
+      () => {
+        // Retry with relaxed settings for mobile devices that time out on strict GPS requests.
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          (err2) => {
+            const msg = (err2 && err2.message) ? err2.message : "Please allow location and turn on GPS.";
+            if (hint) hint.textContent = "Location failed: " + msg;
+            reject(new Error(msg));
+          },
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
+    );
+  });
+}
+
+function ensureTouristLocationPromptCard() {
+  if (touristLocationPromptCard) return touristLocationPromptCard;
+  const overlay = document.createElement("div");
+  overlay.id = "touristLocationPromptCard";
+  overlay.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "background:rgba(0,0,0,0.35)",
+    "display:none",
+    "align-items:center",
+    "justify-content:center",
+    "z-index:10050"
+  ].join(";");
+
+  const card = document.createElement("div");
+  card.style.cssText = [
+    "width:min(360px, calc(100vw - 24px))",
+    "background:#fff",
+    "border-radius:16px",
+    "padding:16px 14px 14px",
+    "box-shadow:0 18px 50px rgba(0,0,0,0.25)"
+  ].join(";");
+  card.innerHTML = `
+    <div style="font-weight:900;font-size:16px;color:#111;">Please turn on your location</div>
+    <div style="margin-top:8px;font-size:13px;font-weight:700;color:#555;">
+      We will use it once to show your location in Map, Location, and Stalls.
+    </div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+      <button type="button" id="touristLocationPromptLater" style="border:0;background:#eee;color:#333;border-radius:10px;padding:8px 12px;font-weight:800;cursor:pointer;">Later</button>
+      <button type="button" id="touristLocationPromptEnable" style="border:0;background:#111;color:#fff;border-radius:10px;padding:8px 12px;font-weight:900;cursor:pointer;">Turn on location</button>
+    </div>
+  `;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  const btnEnable = card.querySelector("#touristLocationPromptEnable");
+  const btnLater = card.querySelector("#touristLocationPromptLater");
+  if (btnEnable) {
+    btnEnable.addEventListener("click", async () => {
+      try {
+        await requestTouristSharedLocation("Please turn on your location.");
+        overlay.style.display = "none";
+      } catch (e) {
+        const hint = document.getElementById("touristLocationHint");
+        if (hint) hint.textContent = (e && e.message) ? e.message : "Location failed. Please enable GPS.";
+      }
+    });
+  }
+  if (btnLater) {
+    btnLater.addEventListener("click", () => {
+      overlay.style.display = "none";
+      const hint = document.getElementById("touristLocationHint");
+      if (hint && !touristSharedLocationEnabled) hint.textContent = "Please turn on your location.";
+    });
+  }
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.style.display = "none";
+  });
+
+  touristLocationPromptCard = overlay;
+  return overlay;
+}
+
+function showTouristLocationPromptCard() {
+  const card = ensureTouristLocationPromptCard();
+  card.style.display = "flex";
+}
+
+function locateTouristForLocationTab() {
+  requestTouristSharedLocation("Please turn on your location.");
 }
 
 function ensureTouristLocationCoords() {
@@ -981,25 +1155,7 @@ function ensureTouristLocationCoords() {
       resolve(touristUserCoords);
       return;
     }
-    if (!navigator.geolocation) {
-      reject(new Error("Geolocation not supported"));
-      return;
-    }
-    const hint = document.getElementById('touristLocationHint');
-    if (hint) hint.textContent = "Getting your location...";
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        touristUserCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        const latlng = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
-        updateTouristUserMarker(latlng, pos.coords.accuracy);
-        touristLocationMap.setView(latlng, Math.max(touristLocationMap.getZoom(), 17), { animate: true });
-        if (hint) hint.textContent = "Showing distances from your current location.";
-        renderTouristLocationCards();
-        resolve(touristUserCoords);
-      },
-      (err) => reject(err),
-      { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
-    );
+    requestTouristSharedLocation("Please turn on your location.").then(resolve).catch(reject);
   });
 }
 
@@ -1023,10 +1179,6 @@ function initTouristLocationTab() {
     }).addTo(touristLocationMap);
 
     touristLocationMarkerCluster = new L.MarkerClusterGroup().addTo(touristLocationMap);
-
-    // Bind location button
-    const btn = document.getElementById('touristLocationBtn');
-    if (btn) btn.addEventListener('click', locateTouristForLocationTab);
 
     // Bind route sheet buttons + close behavior
     const backdrop = document.getElementById('touristRouteSheetBackdrop');
@@ -1078,8 +1230,19 @@ function initTouristLocationTab() {
   setTimeout(() => {
     try {
       touristLocationMap.invalidateSize();
+      if (touristUserCoords && isFinite(touristUserCoords.lat) && isFinite(touristUserCoords.lng)) {
+        const ll = L.latLng(touristUserCoords.lat, touristUserCoords.lng);
+        updateTouristUserMarker(ll, 30);
+        touristLocationMap.setView(ll, Math.max(touristLocationMap.getZoom(), 17), { animate: true });
+        renderTouristLocationCards();
+      }
     } catch (e) {}
   }, 80);
+
+  if (!touristSharedLocationEnabled) {
+    const hint = document.getElementById('touristLocationHint');
+    if (hint) hint.textContent = "Please turn on your location.";
+  }
 }
 
 function loadFestivities() {
@@ -1177,8 +1340,12 @@ function loadLandmarks() {
   if (!listEl) return;
   listEl.innerHTML = '<div class="festivities-loading">Loading landmarks...</div>';
 
-  fetch("tourism/php/get_landmark_cards.php")
-    .then((r) => r.json())
+  fetch("tourism/php/get_landmark_cards.php", { credentials: "same-origin" })
+    .then(async (r) => {
+      if (!r.ok) throw new Error("Failed to load landmark cards");
+      const txt = await r.text();
+      try { return JSON.parse(txt); } catch (_) { return []; }
+    })
     .then((landmarks) => {
       if (!landmarks || landmarks.length === 0) {
         listEl.innerHTML = '<p class="festivities-empty">No landmarks yet.</p>';
@@ -1826,12 +1993,12 @@ function formatRating(avgRating, ratingsCount) {
 function stallImageSrc(stallImage) {
   // stall_image is stored as the filename in uploads/stalls/
   if (stallImage && stallImage !== "0") return "tourism/uploads/stalls/" + stallImage;
-  return "tourism/uploads/stalls/noimg.png";
+  return "tourism/uploads/userPin.png";
 }
 
 function productImageSrc(productImage) {
   if (productImage && productImage !== "0") return "tourism/uploads/products/" + productImage;
-  return "tourism/uploads/default_product.png";
+  return "tourism/uploads/userPin.png";
 }
 
 async function initStallsNearYou() {
@@ -1847,41 +2014,22 @@ async function initStallsNearYou() {
   // Default text (if geolocation fails)
   const gateText = document.getElementById("stallsLocationGateText");
   if (gateText) {
-    gateText.textContent = "Stalls Near You -> No stalls yet. Please turn on your location.";
+    gateText.textContent = "Please turn on your location.";
   }
 
-  if (!navigator.geolocation) {
+  if (!touristUserCoords) {
     loadingEl.classList.add("hidden");
-    if (gateText) gateText.textContent = "Stalls Near You -> Location is not supported by your browser.";
+    gate.classList.remove("hidden");
+    if (gateText) gateText.textContent = "Please turn on your location.";
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      const userCoords = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude
-      };
-
-      gate.classList.add("hidden");
-      loadingEl.classList.remove("hidden");
-      loadingEl.textContent = "Loading stalls near you...";
-
-      await loadAndRenderStalls(userCoords);
-
-      loadingEl.classList.add("hidden");
-      contentWrap.classList.remove("hidden");
-    },
-    (err) => {
-      // Permission denied / timeout / etc.
-      loadingEl.classList.add("hidden");
-      gate.classList.remove("hidden");
-      if (gateText) {
-        gateText.textContent = "Stalls Near You -> No stalls yet. Please turn on your location.";
-      }
-    },
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-  );
+  gate.classList.add("hidden");
+  loadingEl.classList.remove("hidden");
+  loadingEl.textContent = "Loading stalls near you...";
+  await loadAndRenderStalls(touristUserCoords);
+  loadingEl.classList.add("hidden");
+  contentWrap.classList.remove("hidden");
 }
 
 async function loadAndRenderStalls(userCoords) {
@@ -2068,6 +2216,7 @@ function attachStallCardClicks(container) {
 }
 
 async function openStallDetailById(stallId) {
+  touristCurrentStallId = Number(stallId || 0) || null;
   if (!stallId) return;
 
   // Open the bottom sheet (same interaction style as other tabs).
@@ -2106,6 +2255,9 @@ async function openStallDetailById(stallId) {
     }
 
     const stall = data.stall || {};
+    const sLat = Number(stall.lat);
+    const sLng = Number(stall.lng);
+    touristCurrentStallLatLng = (isFinite(sLat) && isFinite(sLng)) ? { lat: sLat, lng: sLng } : null;
     const products = data.products || [];
 
     if (nameEl) nameEl.textContent = stall.stall_name || "Stall";
@@ -2187,4 +2339,24 @@ async function openStallDetailById(stallId) {
     if (productsEl) productsEl.innerHTML = '<div class="stalls-empty">Could not load products.</div>';
     if (sheetProducts) sheetProducts.innerHTML = '<div class="stalls-empty">Could not load products.</div>';
   }
+}
+
+function viewCurrentStallOnMap() {
+  if (!touristCurrentStallId && !touristCurrentStallLatLng) return;
+  const mapTile = document.querySelector('.icon-item[data-content="map"]');
+  if (mapTile) mapTile.click();
+  closeStallDetailSheet();
+  const frame = document.querySelector('iframe[src*="tourism/map.php"]');
+  if (!frame) return;
+
+  let lat = touristCurrentStallLatLng ? touristCurrentStallLatLng.lat : null;
+  let lng = touristCurrentStallLatLng ? touristCurrentStallLatLng.lng : null;
+  if ((!isFinite(lat) || !isFinite(lng)) && touristCurrentStallId) {
+    const near = touristStallsById.get(Number(touristCurrentStallId));
+    lat = Number(near?.lat);
+    lng = Number(near?.lng);
+  }
+  if (!isFinite(lat) || !isFinite(lng)) return;
+
+  frame.src = `tourism/map.php?focus_type=stall&focus_name=${encodeURIComponent("Stall")}&focus_lat=${encodeURIComponent(lat)}&focus_lng=${encodeURIComponent(lng)}`;
 }
